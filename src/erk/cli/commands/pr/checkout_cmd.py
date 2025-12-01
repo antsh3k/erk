@@ -40,7 +40,7 @@ def pr_checkout(ctx: ErkContext, pr_reference: str, script: bool) -> None:
         erk pr checkout https://github.com/owner/repo/pull/123
     """
     # Validate preconditions upfront (LBYL)
-    Ensure.gh_installed()
+    Ensure.gh_authenticated(ctx)
 
     if isinstance(ctx.repo, NoRepoSentinel):
         ctx.feedback.error("Not in a git repository")

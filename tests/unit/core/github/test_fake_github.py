@@ -57,7 +57,7 @@ def test_get_workflow_run_returns_none_when_not_found() -> None:
     result = github.get_workflow_run(repo_root, "999")
 
     # Assert
-    assert result is None, "Expected None for non-existent run ID"
+    assert result is None, "Expected None when workflow run not found"
 
 
 def test_get_workflow_run_handles_empty_workflow_runs() -> None:

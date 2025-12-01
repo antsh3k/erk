@@ -221,16 +221,16 @@ def test_fake_github_ops_get_pr_base_branch_missing() -> None:
 
     result = ops.get_pr_base_branch(sentinel_path(), 999)
 
-    assert result is None
+    assert result is None, "Expected None when PR base branch not configured"
 
 
 def test_fake_github_ops_get_pr_base_branch_empty_dict() -> None:
-    """Test get_pr_base_branch with explicitly empty pr_bases dict."""
+    """Test get_pr_base_branch returns None with empty pr_bases dict."""
     ops = FakeGitHub(pr_bases={})
 
     result = ops.get_pr_base_branch(sentinel_path(), 123)
 
-    assert result is None
+    assert result is None, "Expected None when pr_bases is empty"
 
 
 def test_fake_github_ops_update_pr_base_branch_single() -> None:
