@@ -1407,3 +1407,19 @@ query {{
                 result[node_id] = None
 
         return result
+
+    def get_workflow_run_node_id(self, repo_root: Path, run_id: str) -> str | None:
+        """Get the GraphQL node ID for a workflow run via gh API.
+
+        Uses the REST API endpoint to get workflow run details including node_id.
+        """
+        cmd = [
+            "gh",
+            "api",
+            f"/repos/{{owner}}/{{repo}}/actions/runs/{run_id}",
+            "--jq",
+            ".node_id",
+        ]
+        stdout = execute_gh_command(cmd, repo_root)
+        node_id = stdout.strip()
+        return node_id if node_id else None
