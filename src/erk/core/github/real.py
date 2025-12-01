@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from erk_shared.debug_timing import log_graphql_query
 from erk_shared.github.abc import GitHub
 from erk_shared.github.parsing import (
     _determine_checks_status,
@@ -267,7 +266,6 @@ query {{
         Returns:
             Parsed JSON response
         """
-        log_graphql_query(query)
         cmd = ["gh", "api", "graphql", "-f", f"query={query}"]
         stdout = execute_gh_command(cmd, repo_root)
         return json.loads(stdout)
@@ -870,41 +868,48 @@ query {{
         Returns:
             GraphQL query string
         """
-        # Build aliased issue queries (following _build_workflow_runs_batch_query pattern)
+        # Define the fragment once at the top of the query
+        fragment_definition = """fragment IssuePRLinkageFields on CrossReferencedEvent {
+  willCloseTarget
+  source {
+    ... on PullRequest {
+      number
+      state
+      url
+      isDraft
+      title
+      createdAt
+      statusCheckRollup {
+        state
+      }
+      mergeable
+      labels(first: 10) {
+        nodes {
+          name
+        }
+      }
+    }
+  }
+}"""
+
+        # Build aliased issue queries using the fragment spread
         issue_queries = []
         for issue_num in issue_numbers:
             issue_query = f"""    issue_{issue_num}: issue(number: {issue_num}) {{
       timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 20) {{
         nodes {{
           ... on CrossReferencedEvent {{
-            willCloseTarget
-            source {{
-              ... on PullRequest {{
-                number
-                state
-                url
-                isDraft
-                title
-                createdAt
-                statusCheckRollup {{
-                  state
-                }}
-                mergeable
-                labels(first: 10) {{
-                  nodes {{
-                    name
-                  }}
-                }}
-              }}
-            }}
+            ...IssuePRLinkageFields
           }}
         }}
       }}
     }}"""
             issue_queries.append(issue_query)
 
-        # Combine into single query under repository context
-        query = f"""query {{
+        # Combine fragment definition and query
+        query = f"""{fragment_definition}
+
+query {{
   repository(owner: "{owner}", name: "{repo}") {{
 {chr(10).join(issue_queries)}
   }}
