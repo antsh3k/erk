@@ -255,7 +255,11 @@ class GitHub(ABC):
 
     @abstractmethod
     def get_prs_linked_to_issues(
-        self, repo_root: Path, issue_numbers: list[int]
+        self,
+        repo_root: Path,
+        issue_numbers: list[int],
+        owner: str,
+        repo: str,
     ) -> dict[int, list[PullRequestInfo]]:
         """Get PRs linked to issues via closing keywords.
 
@@ -266,6 +270,8 @@ class GitHub(ABC):
         Args:
             repo_root: Repository root directory
             issue_numbers: List of issue numbers to query
+            owner: Repository owner (e.g., "dagster-io")
+            repo: Repository name (e.g., "erk")
 
         Returns:
             Mapping of issue_number -> list of PRs that close that issue.
