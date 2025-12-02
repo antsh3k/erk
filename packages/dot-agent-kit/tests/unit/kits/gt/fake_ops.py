@@ -170,7 +170,14 @@ class FakeGitGtKitOps(Git):
 
     def get_diff_to_branch(self, cwd: Path, branch: str) -> str:
         """Get diff between branch and HEAD."""
-        return ""
+        return (
+            "diff --git a/file.py b/file.py\n"
+            "--- a/file.py\n"
+            "+++ b/file.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-old\n"
+            "+new"
+        )
 
     def simulate_conflict(self, base_branch: str, head_branch: str) -> None:
         """Configure fake to simulate conflicts for specific branch pair."""
@@ -839,3 +846,23 @@ class FakeGtKitOps(GtKit):
         }
         self._github._state = replace(gh_state, pr_mergeability=new_mergeability)
         return self
+
+    def with_restack_conflict(self) -> "FakeGtKitOps":
+        """Configure restack to fail with conflicts.
+
+        Returns:
+            Self for chaining
+        """
+        return self.with_restack_failure(
+            stderr="error: merge conflict in file.py\nCONFLICT (content): Merge conflict in file.py"
+        )
+
+    def with_squash_conflict(self) -> "FakeGtKitOps":
+        """Configure squash to fail with conflicts.
+
+        Returns:
+            Self for chaining
+        """
+        return self.with_squash_failure(
+            stderr="error: merge conflict in file.py\nCONFLICT (content): Merge conflict in file.py"
+        )
