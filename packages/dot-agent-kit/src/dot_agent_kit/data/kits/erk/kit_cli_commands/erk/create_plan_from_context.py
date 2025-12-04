@@ -62,7 +62,7 @@ def create_plan_from_context(ctx: click.Context) -> None:
     # We'll update it after creation with the full formatted body including commands
     initial_body = plan.strip()
 
-    # Ensure label exists (ABC interface with EAFP pattern)
+    # Ensure label exists (ABC interface)
     try:
         github.ensure_label_exists(
             repo_root=repo_root,
