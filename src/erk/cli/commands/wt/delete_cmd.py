@@ -286,7 +286,11 @@ def _delete_worktree(
     _delete_worktree_directory(ctx, repo.root, wt_path)
 
     if branch_to_delete:
-        _delete_branch_at_error_boundary(ctx, repo.root, branch_to_delete, force, dry_run)
+        # User already confirmed via _confirm_operations(), so force=True for branch deletion
+        # to avoid redundant Graphite prompt
+        _delete_branch_at_error_boundary(
+            ctx, repo.root, branch_to_delete, force=True, dry_run=dry_run
+        )
 
     if not dry_run:
         path_text = click.style(str(wt_path), fg="green")
