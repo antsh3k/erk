@@ -7,6 +7,7 @@ enables dependency injection for testing without mock.patch.
 
 import os
 import shutil
+import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -100,6 +101,23 @@ class Shell(ABC):
         """
         ...
 
+    @abstractmethod
+    def run_claude_extraction_plan(self, cwd: Path) -> None:
+        """Run Claude CLI to create an extraction plan from session logs.
+
+        This spawns Claude in non-interactive mode to analyze session logs
+        and create a documentation extraction plan before landing a PR.
+
+        Caller should use Ensure.claude_installed() before calling this method.
+
+        Args:
+            cwd: Directory to run Claude in (typically the worktree being landed)
+
+        Raises:
+            subprocess.CalledProcessError: If Claude CLI execution fails.
+        """
+        ...
+
 
 class RealShell(Shell):
     """Production implementation using system environment and PATH."""
@@ -136,4 +154,26 @@ class RealShell(Shell):
             operation_context="execute erk sync subprocess",
             cwd=repo_root,
             capture_output=not verbose,
+        )
+
+    def run_claude_extraction_plan(self, cwd: Path) -> None:
+        """Run Claude CLI to create an extraction plan from session logs.
+
+        Spawns Claude in non-interactive mode with permission bypass to
+        automatically create an extraction plan.
+        """
+        cmd = [
+            "claude",
+            "--print",
+            "--permission-mode",
+            "bypassPermissions",
+            "/erk:create-extraction-plan",
+        ]
+
+        subprocess.run(
+            cmd,
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
         )

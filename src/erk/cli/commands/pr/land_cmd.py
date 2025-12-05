@@ -10,6 +10,8 @@ It merges the current PR, deletes the current worktree/branch, navigates to the
 parent (trunk), and pulls the latest changes.
 """
 
+import subprocess
+
 import click
 from erk_shared.integrations.gt.cli import render_events
 from erk_shared.integrations.gt.operations.land_pr import execute_land_pr
@@ -31,19 +33,29 @@ from erk.core.context import ErkContext
 @click.command("land")
 @click.option("--script", is_flag=True, help="Print only the activation script")
 @click.option("--up", is_flag=True, help="Navigate up to child branch instead of trunk")
+@click.option(
+    "--extract/--no-extract",
+    default=True,
+    help="Create extraction plan from session logs before landing (default: enabled)",
+)
 @click.pass_obj
-def pr_land(ctx: ErkContext, script: bool, up: bool) -> None:
+def pr_land(ctx: ErkContext, script: bool, up: bool, extract: bool) -> None:
     """Merge PR, switch to trunk (or upstack with --up), and delete branch/worktree.
 
     Merges the current PR (must be one level from trunk), deletes the current
     branch and worktree, then navigates to the destination and pulls changes.
 
+    By default, creates a documentation extraction plan from session logs before
+    landing. This captures learnings from the work session for future improvements.
+    Use --no-extract to skip extraction plan creation.
+
     By default, navigates to trunk. With --up, navigates to child branch instead,
     enabling landing an entire stack one PR at a time.
 
     With shell integration (recommended):
-      erk pr land        # Navigate to trunk
-      erk pr land --up   # Navigate to child branch
+      erk pr land               # Navigate to trunk, create extraction plan
+      erk pr land --up          # Navigate to child, create extraction plan
+      erk pr land --no-extract  # Skip extraction plan creation
 
     Without shell integration:
       source <(erk pr land --script)
@@ -54,6 +66,7 @@ def pr_land(ctx: ErkContext, script: bool, up: bool) -> None:
     - Current branch must be one level from trunk
     - PR must be open and ready to merge
     - Working tree must be clean (no uncommitted changes)
+    - Claude CLI installed (for extraction plan; warns if missing)
     """
     # Validate prerequisites
     Ensure.gh_authenticated(ctx)
@@ -101,6 +114,24 @@ def pr_land(ctx: ErkContext, script: bool, up: bool) -> None:
         + f" Merged PR #{success_result.pr_number} [{success_result.branch_name}]"
     )
 
+    # Step 1.5: Create extraction plan from session logs (optional)
+    # This captures learnings from the work session for documentation improvements.
+    # Use ctx.cwd (current working directory) to access session logs in the worktree.
+    # If extraction fails, preserve the worktree so user can retry manually.
+    extraction_success = True  # Default: proceed with deletion
+    if extract:
+        try:
+            ctx.shell.run_claude_extraction_plan(ctx.cwd)
+            user_output(click.style("✓", fg="green") + " Created documentation extraction plan")
+        except subprocess.CalledProcessError as e:
+            extraction_success = False
+            user_output(
+                click.style("⚠", fg="yellow")
+                + " Extraction plan failed - preserving worktree for manual retry"
+            )
+            user_output(f"  Error: {e}")
+            user_output("  Run manually: claude /erk:create-extraction-plan")
+
     # Step 2: Navigate to destination (trunk or upstack)
     worktrees = ctx.git.list_worktrees(repo.root)
 
@@ -142,8 +173,14 @@ def pr_land(ctx: ErkContext, script: bool, up: bool) -> None:
     )
     machine_output(str(activation_result.path), nl=False)
 
-    # Step 4: Delete current branch and worktree
-    delete_branch_and_worktree(ctx, repo.root, current_branch, current_worktree_path)
+    # Step 4: Delete current branch and worktree (skip if extraction failed)
+    if extraction_success:
+        delete_branch_and_worktree(ctx, repo.root, current_branch, current_worktree_path)
+    else:
+        user_output(
+            click.style("⚠", fg="yellow") + f" Worktree preserved at: {current_worktree_path}"
+        )
+        user_output("  Delete manually after extraction: erk wt rm")
 
     # Step 5: Pull latest changes on destination branch
     # If this fails, the script is already output - shell can still navigate

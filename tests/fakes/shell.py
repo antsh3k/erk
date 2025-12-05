@@ -47,6 +47,7 @@ class FakeShell(Shell):
         *,
         detected_shell: tuple[str, Path] | None = None,
         installed_tools: dict[str, str] | None = None,
+        claude_extraction_raises: bool = False,
     ) -> None:
         """Initialize fake with predetermined shell and tool availability.
 
@@ -55,10 +56,14 @@ class FakeShell(Shell):
                 should be detected. Format: (shell_name, rc_file_path)
             installed_tools: Mapping of tool name to executable path. Tools not in
                 this mapping will return None from get_installed_tool_path()
+            claude_extraction_raises: If True, run_claude_extraction_plan raises
+                subprocess.CalledProcessError. If False, completes successfully.
         """
         self._detected_shell = detected_shell
         self._installed_tools = installed_tools or {}
         self._sync_calls: list[tuple[Path, bool, bool]] = []
+        self._claude_extraction_raises = claude_extraction_raises
+        self._extraction_calls: list[Path] = []
 
     def detect_shell(self) -> tuple[str, Path] | None:
         """Return the shell configured at construction time."""
@@ -85,3 +90,29 @@ class FakeShell(Shell):
         This property is for test assertions only.
         """
         return self._sync_calls.copy()
+
+    def run_claude_extraction_plan(self, cwd: Path) -> None:
+        """Track call to run_claude_extraction_plan without executing anything.
+
+        This method records the call parameters for test assertions.
+        Raises subprocess.CalledProcessError if configured to do so.
+        """
+        import subprocess
+
+        self._extraction_calls.append(cwd)
+        if self._claude_extraction_raises:
+            raise subprocess.CalledProcessError(
+                returncode=1,
+                cmd=["claude", "/erk:create-extraction-plan"],
+                stderr="Simulated extraction failure",
+            )
+
+    @property
+    def extraction_calls(self) -> list[Path]:
+        """Get the list of run_claude_extraction_plan() calls that were made.
+
+        Returns list of cwd paths where extraction was invoked.
+
+        This property is for test assertions only.
+        """
+        return self._extraction_calls.copy()
