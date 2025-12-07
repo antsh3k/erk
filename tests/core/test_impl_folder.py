@@ -39,7 +39,7 @@ Build a test feature.
 3. Update documentation
 """
 
-    plan_folder = create_impl_folder(tmp_path, plan_content)
+    plan_folder = create_impl_folder(tmp_path, plan_content, overwrite=False)
 
     # Verify folder structure
     assert plan_folder.exists()
@@ -64,11 +64,51 @@ def test_create_impl_folder_already_exists(tmp_path: Path) -> None:
     plan_content = "# Test Plan\n\n1. Step one"
 
     # Create first time - should succeed
-    create_impl_folder(tmp_path, plan_content)
+    create_impl_folder(tmp_path, plan_content, overwrite=False)
 
     # Try to create again - should raise
     with pytest.raises(FileExistsError, match="Implementation folder already exists"):
-        create_impl_folder(tmp_path, plan_content)
+        create_impl_folder(tmp_path, plan_content, overwrite=False)
+
+
+def test_create_impl_folder_overwrite_replaces_existing(tmp_path: Path) -> None:
+    """Test that overwrite=True removes existing .impl/ folder before creating new one.
+
+    This is the fix for GitHub issue #2595 where creating a worktree from a branch
+    with an existing .impl/ folder would fail because the folder was inherited.
+    """
+    old_plan = "# Old Plan\n\n1. Old step one\n2. Old step two"
+    new_plan = "# New Plan\n\n1. New step one\n2. New step two\n3. New step three"
+
+    # Create first .impl/ folder
+    impl_folder = create_impl_folder(tmp_path, old_plan, overwrite=False)
+    old_plan_file = impl_folder / "plan.md"
+    old_progress_file = impl_folder / "progress.md"
+
+    # Verify old content
+    assert old_plan_file.read_text(encoding="utf-8") == old_plan
+    old_progress_content = old_progress_file.read_text(encoding="utf-8")
+    assert "1. Old step one" in old_progress_content
+    assert "total_steps: 2" in old_progress_content
+
+    # Create again with overwrite=True - should succeed and replace content
+    new_impl_folder = create_impl_folder(tmp_path, new_plan, overwrite=True)
+
+    # Verify new content replaced old
+    assert new_impl_folder == impl_folder  # Same path
+    new_plan_file = new_impl_folder / "plan.md"
+    new_progress_file = new_impl_folder / "progress.md"
+
+    assert new_plan_file.read_text(encoding="utf-8") == new_plan
+    new_progress_content = new_progress_file.read_text(encoding="utf-8")
+    assert "1. New step one" in new_progress_content
+    assert "2. New step two" in new_progress_content
+    assert "3. New step three" in new_progress_content
+    assert "total_steps: 3" in new_progress_content
+
+    # Verify old content is gone
+    assert "Old" not in new_plan_file.read_text(encoding="utf-8")
+    assert "Old" not in new_progress_content
 
 
 def test_create_impl_folder_with_nested_steps(tmp_path: Path) -> None:
@@ -87,7 +127,7 @@ def test_create_impl_folder_with_nested_steps(tmp_path: Path) -> None:
 2.3. Substep three
 """
 
-    plan_folder = create_impl_folder(tmp_path, plan_content)
+    plan_folder = create_impl_folder(tmp_path, plan_content, overwrite=False)
     progress_file = plan_folder / "progress.md"
     progress_content = progress_file.read_text(encoding="utf-8")
 
@@ -109,7 +149,7 @@ This plan has no numbered steps.
 Just some text.
 """
 
-    plan_folder = create_impl_folder(tmp_path, plan_content)
+    plan_folder = create_impl_folder(tmp_path, plan_content, overwrite=False)
     progress_file = plan_folder / "progress.md"
     progress_content = progress_file.read_text(encoding="utf-8")
 
@@ -121,7 +161,7 @@ Just some text.
 def test_get_impl_path_exists(tmp_path: Path) -> None:
     """Test getting plan path when it exists."""
     plan_content = "# Test\n\n1. Step"
-    create_impl_folder(tmp_path, plan_content)
+    create_impl_folder(tmp_path, plan_content, overwrite=False)
 
     plan_path = get_impl_path(tmp_path)
     assert plan_path is not None
@@ -138,7 +178,7 @@ def test_get_impl_path_not_exists(tmp_path: Path) -> None:
 def test_get_progress_path_exists(tmp_path: Path) -> None:
     """Test getting progress path when it exists."""
     plan_content = "# Test\n\n1. Step"
-    create_impl_folder(tmp_path, plan_content)
+    create_impl_folder(tmp_path, plan_content, overwrite=False)
 
     progress_path = get_progress_path(tmp_path)
     assert progress_path is not None
@@ -155,7 +195,7 @@ def test_get_progress_path_not_exists(tmp_path: Path) -> None:
 def test_update_progress(tmp_path: Path) -> None:
     """Test updating progress.md content."""
     plan_content = "# Test\n\n1. Step one\n2. Step two"
-    create_impl_folder(tmp_path, plan_content)
+    create_impl_folder(tmp_path, plan_content, overwrite=False)
 
     # Update progress with completed first step
     new_progress = """# Progress Tracking
@@ -306,7 +346,7 @@ def test_create_impl_folder_generates_frontmatter(tmp_path: Path) -> None:
 2. Second step
 3. Third step
 """
-    plan_folder = create_impl_folder(tmp_path, plan_content)
+    plan_folder = create_impl_folder(tmp_path, plan_content, overwrite=False)
     progress_file = plan_folder / "progress.md"
     progress_content = progress_file.read_text(encoding="utf-8")
 
@@ -325,7 +365,7 @@ def test_create_impl_folder_generates_steps_array(tmp_path: Path) -> None:
 2. Second step
 3. Third step
 """
-    plan_folder = create_impl_folder(tmp_path, plan_content)
+    plan_folder = create_impl_folder(tmp_path, plan_content, overwrite=False)
     progress_file = plan_folder / "progress.md"
     progress_content = progress_file.read_text(encoding="utf-8")
 
@@ -412,7 +452,7 @@ completed_steps: 3
 def test_update_progress_frontmatter_replaces_existing(tmp_path: Path) -> None:
     """Test updating existing front matter preserves checkbox content."""
     plan_content = "# Test\n\n1. Step one\n2. Step two"
-    create_impl_folder(tmp_path, plan_content)
+    create_impl_folder(tmp_path, plan_content, overwrite=False)
 
     # Manually mark first checkbox as completed
     progress_file = tmp_path / ".impl" / "progress.md"
@@ -685,7 +725,7 @@ def test_issue_reference_with_plan_folder(tmp_path: Path) -> None:
     """Test issue reference integration with plan folder creation."""
     # Create plan folder
     plan_content = "# Test Plan\n\n1. Step one"
-    plan_folder = create_impl_folder(tmp_path, plan_content)
+    plan_folder = create_impl_folder(tmp_path, plan_content, overwrite=False)
 
     # Initially no issue reference
     assert has_issue_reference(plan_folder) is False
