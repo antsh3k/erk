@@ -1,10 +1,11 @@
 """Resolve a PR review thread via GraphQL mutation.
 
 This kit CLI command resolves a single PR review thread and outputs
-JSON with the result.
+JSON with the result. Optionally adds a reply comment before resolving.
 
 Usage:
     dot-agent run erk resolve-review-thread --thread-id "PRRT_xxxx"
+    dot-agent run erk resolve-review-thread --thread-id "PRRT_xxxx" --comment "Resolved via ..."
 
 Output:
     JSON with success status
@@ -17,16 +18,25 @@ Examples:
     $ dot-agent run erk resolve-review-thread --thread-id "PRRT_abc123"
     {"success": true, "thread_id": "PRRT_abc123"}
 
+    $ dot-agent run erk resolve-review-thread --thread-id "PRRT_abc123" --comment "Fixed"
+    {"success": true, "thread_id": "PRRT_abc123", "comment_added": true}
+
     $ dot-agent run erk resolve-review-thread --thread-id "invalid"
     {"success": false, "error_type": "resolution_failed", "message": "..."}
 """
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from dot_agent_kit.context_helpers import require_github, require_repo_root
+
+if TYPE_CHECKING:
+    from erk_shared.github.abc import GitHub
 
 
 @dataclass(frozen=True)
@@ -35,6 +45,7 @@ class ResolveThreadSuccess:
 
     success: bool
     thread_id: str
+    comment_added: bool = False
 
 
 @dataclass(frozen=True)
@@ -46,20 +57,84 @@ class ResolveThreadError:
     message: str
 
 
+def _format_resolution_comment(comment: str) -> str:
+    """Format a resolution comment with timestamp and source attribution.
+
+    Args:
+        comment: The user-provided comment text
+
+    Returns:
+        Formatted comment with timestamp and /erk:pr-address attribution
+    """
+    timestamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    return f"{comment}\n\n_Addressed via `/erk:pr-address` at {timestamp}_"
+
+
+def _ensure_not_error[T](result: T | ResolveThreadError) -> T:
+    """Ensure result is not an error, otherwise output JSON and exit.
+
+    Provides type narrowing: takes `T | ResolveThreadError` and returns `T`.
+
+    Args:
+        result: Value that may be a ResolveThreadError
+
+    Returns:
+        The value unchanged if not an error (with narrowed type T)
+
+    Raises:
+        SystemExit: If result is ResolveThreadError (with exit code 0)
+    """
+    if isinstance(result, ResolveThreadError):
+        click.echo(json.dumps(asdict(result), indent=2))
+        raise SystemExit(0)
+    return result
+
+
+def _add_comment_if_provided(
+    github: "GitHub",
+    repo_root: Path,
+    thread_id: str,
+    comment: str | None,
+) -> bool | ResolveThreadError:
+    """Add a comment to the thread if provided.
+
+    Returns:
+        True/False for comment_added status, or ResolveThreadError on failure
+    """
+    if comment is None:
+        return False
+
+    formatted_comment = _format_resolution_comment(comment)
+    try:
+        return github.add_review_thread_reply(repo_root, thread_id, formatted_comment)
+    except RuntimeError as e:
+        return ResolveThreadError(
+            success=False,
+            error_type="comment_failed",
+            message=f"Failed to add comment: {e}",
+        )
+
+
 @click.command(name="resolve-review-thread")
 @click.option("--thread-id", required=True, help="GraphQL node ID of the thread to resolve")
+@click.option("--comment", default=None, help="Optional comment to add before resolving")
 @click.pass_context
-def resolve_review_thread(ctx: click.Context, thread_id: str) -> None:
+def resolve_review_thread(ctx: click.Context, thread_id: str, comment: str | None) -> None:
     """Resolve a PR review thread.
 
     Takes a GraphQL node ID (from get-pr-review-comments output) and
-    marks the thread as resolved.
+    marks the thread as resolved. Optionally adds a reply comment first.
 
     THREAD_ID: GraphQL node ID of the review thread
     """
     # Get dependencies from context
     repo_root = require_repo_root(ctx)
     github = require_github(ctx)
+
+    # Add comment first if provided
+    comment_added = _ensure_not_error(
+        _add_comment_if_provided(github, repo_root, thread_id, comment)
+    )
 
     # Attempt to resolve the thread
     try:
@@ -77,6 +152,7 @@ def resolve_review_thread(ctx: click.Context, thread_id: str) -> None:
         result_success = ResolveThreadSuccess(
             success=True,
             thread_id=thread_id,
+            comment_added=comment_added,
         )
         click.echo(json.dumps(asdict(result_success), indent=2))
     else:
