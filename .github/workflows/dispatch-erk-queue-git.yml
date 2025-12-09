@@ -4,6 +4,8 @@
 #
 # Without this setting, PR creation will fail with:
 # "GitHub Actions is not permitted to create or approve pull requests"
+#
+# Note: Trivial change to force GitHub to re-parse workflow_dispatch trigger (2025-12-09)
 
 name: Dispatch Erk Queue (Git Only)
 run-name: "${{ inputs.issue_number }}:${{ inputs.distinct_id }}"
