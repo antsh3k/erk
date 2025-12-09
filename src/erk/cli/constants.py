@@ -4,8 +4,8 @@
 ERK_PLAN_LABEL = "erk-plan"
 
 # GitHub Actions workflow for remote implementation dispatch
-DISPATCH_WORKFLOW_NAME = "dispatch-erk-queue-git.yml"
-DISPATCH_WORKFLOW_METADATA_NAME = "dispatch-erk-queue-git"
+DISPATCH_WORKFLOW_NAME = "dispatch-erk-queue.yml"
+DISPATCH_WORKFLOW_METADATA_NAME = "dispatch-erk-queue"
 
 # Documentation extraction tracking label
 DOCS_EXTRACTED_LABEL = "docs-extracted"
