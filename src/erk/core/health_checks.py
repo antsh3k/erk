@@ -10,6 +10,12 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from erk.core.claude_settings import (
+    ERK_PERMISSION,
+    get_repo_claude_settings_path,
+    has_erk_permission,
+    read_claude_settings,
+)
 from erk.core.context import ErkContext
 
 
@@ -178,6 +184,69 @@ def check_github_cli() -> CheckResult:
             passed=True,
             message="GitHub CLI found (version check failed)",
             details="unknown",
+        )
+
+
+def check_github_auth() -> CheckResult:
+    """Check if GitHub CLI is authenticated."""
+    gh_path = shutil.which("gh")
+    if gh_path is None:
+        return CheckResult(
+            name="github auth",
+            passed=False,
+            message="Cannot check auth: gh not installed",
+        )
+
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "status"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            # Parse output to find username
+            # Format: "✓ Logged in to github.com account username (keyring)"
+            output = result.stdout.strip() or result.stderr.strip()
+            username = None
+            for line in output.split("\n"):
+                if "Logged in to" in line and "account" in line:
+                    # Extract username from "... account username (...)"
+                    parts = line.split("account")
+                    if len(parts) > 1:
+                        username_part = parts[1].strip()
+                        username = username_part.split()[0] if username_part else None
+                    break
+            if username:
+                return CheckResult(
+                    name="github auth",
+                    passed=True,
+                    message=f"Authenticated as {username}",
+                )
+            return CheckResult(
+                name="github auth",
+                passed=True,
+                message="Authenticated to GitHub",
+            )
+        else:
+            return CheckResult(
+                name="github auth",
+                passed=False,
+                message="Not authenticated to GitHub",
+                details="Run: gh auth login",
+            )
+    except subprocess.TimeoutExpired:
+        return CheckResult(
+            name="github auth",
+            passed=False,
+            message="Auth check timed out",
+        )
+    except Exception as e:
+        return CheckResult(
+            name="github auth",
+            passed=False,
+            message=f"Auth check failed: {e}",
         )
 
 
@@ -365,6 +434,55 @@ def check_gitignore_entries(repo_root: Path) -> CheckResult:
     )
 
 
+def check_claude_erk_permission(repo_root: Path) -> CheckResult:
+    """Check if erk permission is configured in repo's Claude Code settings.
+
+    This is an info-level check - it always passes, but shows whether
+    the permission is configured or not. The permission allows Claude
+    to run erk commands without prompting.
+
+    Args:
+        repo_root: Path to the repository root
+
+    Returns:
+        CheckResult with info about permission status
+    """
+    settings_path = get_repo_claude_settings_path(repo_root)
+
+    try:
+        settings = read_claude_settings(settings_path)
+    except json.JSONDecodeError as e:
+        return CheckResult(
+            name="claude erk permission",
+            passed=False,
+            message="Invalid JSON in .claude/settings.json",
+            details=str(e),
+        )
+
+    # No settings file - repo may not have Claude settings
+    if settings is None:
+        return CheckResult(
+            name="claude erk permission",
+            passed=True,  # Info level - always passes
+            message="No .claude/settings.json in repo",
+        )
+
+    # Check for permission
+    if has_erk_permission(settings):
+        return CheckResult(
+            name="claude erk permission",
+            passed=True,
+            message=f"erk permission configured ({ERK_PERMISSION})",
+        )
+    else:
+        return CheckResult(
+            name="claude erk permission",
+            passed=True,  # Info level - always passes
+            message="erk permission not configured",
+            details=f"Run 'erk init' to add {ERK_PERMISSION} to .claude/settings.json",
+        )
+
+
 def check_repository(ctx: ErkContext) -> CheckResult:
     """Check repository setup."""
     # First check if we're in a git repo using git_common_dir
@@ -503,6 +621,7 @@ def run_all_checks(ctx: ErkContext) -> list[CheckResult]:
         check_claude_cli(),
         check_graphite_cli(),
         check_github_cli(),
+        check_github_auth(),
         check_uv_version(),
         check_dot_agent(),
     ]
@@ -519,6 +638,7 @@ def run_all_checks(ctx: ErkContext) -> list[CheckResult]:
     git_dir = ctx.git.get_git_common_dir(ctx.cwd)
     if git_dir is not None:
         repo_root = ctx.git.get_repository_root(ctx.cwd)
+        results.append(check_claude_erk_permission(repo_root))
         results.append(check_claude_settings(repo_root))
         results.append(check_gitignore_entries(repo_root))
 
