@@ -28,19 +28,17 @@ This analyzes commits, categorizes changes, and updates CHANGELOG.md with your a
 
 ### 2. Bump Version
 
-Edit `pyproject.toml`:
-
-```toml
-version = "X.Y.Z"  # Update to new version
+```bash
+erk-dev bump-version X.Y.Z
 ```
 
-### 3. Commit and Push
+### 3. Create Release PR
 
 ```bash
-git add pyproject.toml CHANGELOG.md
-git commit -m "Release vX.Y.Z"
-git push origin master
+erk pr submit "Release vX.Y.Z"
 ```
+
+This creates a PR with the version bump and changelog updates. Merge it to master once CI passes.
 
 ### 4. Create GitHub Release
 
