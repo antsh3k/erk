@@ -4,6 +4,7 @@
 
 **Artifacts**:
 
+- skill: skills/erk/SKILL.md, skills/erk/references/erk.md
 - command: commands/erk/plan-implement.md, commands/erk/merge-conflicts-fix.md, commands/erk/submit-plan.md, commands/erk/auto-restack.md, commands/erk/create-extraction-plan.md, commands/erk/save-plan.md, commands/erk/pr-address.md
 - agent: agents/erk/issue-wt-creator.md, agents/erk/plan-extractor.md
 - workflow: workflows/erk/dispatch-erk-queue.yml
@@ -13,3 +14,4 @@
 
 - Use Task tool with subagent_type="erk"
 - Run `/erk` command
+- Load `erk` skill

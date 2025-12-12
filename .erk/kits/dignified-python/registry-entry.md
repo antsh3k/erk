@@ -1,4 +1,4 @@
-### dignified-python (v0.2.0)
+### dignified-python (v0.2.1)
 
 **Purpose**: Version-aware Python coding standards with automatic version detection
 
