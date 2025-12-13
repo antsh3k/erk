@@ -1367,14 +1367,15 @@ class ErkDashApp(App):
 
     @on(PlanDataTable.LocalWtClicked)
     def on_local_wt_clicked(self, event: PlanDataTable.LocalWtClicked) -> None:
-        """Handle click on local-wt cell - copy checkout command.
-
-        Args:
-            event: LocalWtClicked event with row index
-        """
+        """Handle click on local-wt cell - copy worktree name to clipboard."""
         if event.row_index < len(self._rows):
             row = self._rows[event.row_index]
-            self._copy_checkout_command(row)
+            if row.worktree_name:
+                success = self._provider.clipboard.copy(row.worktree_name)
+                if success:
+                    self.notify(f"Copied: {row.worktree_name}", timeout=2)
+                else:
+                    self.notify("Clipboard unavailable", severity="error", timeout=2)
 
     @on(PlanDataTable.RunIdClicked)
     def on_run_id_clicked(self, event: PlanDataTable.RunIdClicked) -> None:
