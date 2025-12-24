@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from erk_shared.github.issues import GitHubIssues, IssueInfo
-from erk_shared.github.metadata import extract_plan_from_comment
+from erk_shared.github.metadata import extract_plan_from_comment, extract_plan_header_comment_id
 from erk_shared.plan_store.store import PlanStore
 from erk_shared.plan_store.types import Plan, PlanQuery, PlanState
 
@@ -39,9 +39,11 @@ class GitHubPlanStore(PlanStore):
 
         Schema Version 2:
         1. Fetch issue (body contains metadata)
-        2. Fetch first comment (contains plan content) - always fresh
-        3. Extract plan from comment using extract_plan_from_comment()
-        4. Return Plan with extracted plan content as body
+        2. Check for plan_comment_id in metadata for direct lookup
+        3. If plan_comment_id exists, fetch that specific comment
+        4. Otherwise, fall back to fetching first comment
+        5. Extract plan from comment using extract_plan_from_comment()
+        6. Return Plan with extracted plan content as body
 
         Backward Compatibility:
         - If no first comment with plan markers found, falls back to issue body
@@ -59,29 +61,47 @@ class GitHubPlanStore(PlanStore):
         """
         issue_number = int(plan_identifier)
         issue_info = self._github_issues.get_issue(repo_root, issue_number)
+        plan_body = self._get_plan_body(repo_root, issue_info)
+        return self._convert_to_plan(issue_info, plan_body)
 
-        # Fetch first comment (always fresh - no caching)
-        comments = self._github_issues.get_issue_comments(repo_root, issue_number)
+    def _get_plan_body(self, repo_root: Path, issue_info: IssueInfo) -> str:
+        """Get the plan body from the issue.
 
-        # Try to extract plan content from first comment (schema version 2)
+        Args:
+            repo_root: Repository root directory
+            issue_info: IssueInfo from GitHubIssues interface
+
+        Returns:
+            Plan body as string
+        """
         plan_body = None
+        plan_comment_id = extract_plan_header_comment_id(issue_info.body)
+        if plan_comment_id is not None:
+            comment_body = self._github_issues.get_comment_by_id(repo_root, plan_comment_id)
+            plan_body = extract_plan_from_comment(comment_body)
+
+        if plan_body:
+            return plan_body
+
+        comments = self._github_issues.get_issue_comments(repo_root, issue_info.number)
         if comments:
             first_comment = comments[0]
             plan_body = extract_plan_from_comment(first_comment)
 
-        # Fallback to issue body for backward compatibility (old format)
-        if plan_body is None:
-            plan_body = issue_info.body
+        if plan_body:
+            return plan_body
+
+        plan_body = issue_info.body
 
         # Validate plan has meaningful content
         if not plan_body or not plan_body.strip():
             msg = (
-                f"Plan content is empty for issue {plan_identifier}. "
+                f"Plan content is empty for issue {issue_info.number}. "
                 "Ensure the issue body or first comment contains plan content."
             )
             raise RuntimeError(msg)
 
-        return self._convert_to_plan(issue_info, plan_body)
+        return plan_body
 
     def list_plans(self, repo_root: Path, query: PlanQuery) -> list[Plan]:
         """Query plans from GitHub.
