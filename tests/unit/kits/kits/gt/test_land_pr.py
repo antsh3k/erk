@@ -289,6 +289,82 @@ class TestLandPrTitle:
         assert ops.github.get_pr_title(Path("."), 999) is None
 
 
+class TestLandPrBaseBranchValidation:
+    """Tests for PR base branch validation."""
+
+    def test_land_pr_errors_on_mismatched_github_base(self, tmp_path: Path) -> None:
+        """Test that landing errors when GitHub base differs from trunk.
+
+        Scenario:
+        - Stack: A (branched from main) -> B (branched from A)
+        - Land A with --up, which merges A's PR and navigates to B
+        - Local Graphite metadata updates B's parent to main
+        - But GitHub PR for B still has base = A (never updated!)
+        - Landing B should detect this mismatch and error with remediation steps
+        """
+        # Setup: B is on main (local), but GitHub PR still targets branch-A
+        ops = (
+            FakeGtKitOps()
+            .with_repo_root(str(tmp_path))
+            .with_branch("branch-B", parent="main")  # Local Graphite says parent=main
+            .with_pr(456, state="OPEN")
+            .with_pr_base(456, "branch-A")  # GitHub PR still targets branch-A
+        )
+
+        result = render_events(execute_land_pr(ops, tmp_path))
+
+        # Should error with remediation instructions
+        assert isinstance(result, LandPrError)
+        assert result.success is False
+        assert result.error_type == "pr_base_mismatch"
+        assert "targets 'branch-A' but should target 'main'" in result.message
+        assert "gt restack" in result.message
+        assert result.details["pr_base"] == "branch-A"
+        assert result.details["expected_base"] == "main"
+
+    def test_land_pr_succeeds_when_base_matches(self, tmp_path: Path) -> None:
+        """Test that landing succeeds when GitHub base already matches trunk."""
+        # Setup: B is on main and GitHub PR also targets main
+        ops = (
+            FakeGtKitOps()
+            .with_repo_root(str(tmp_path))
+            .with_branch("branch-B", parent="main")
+            .with_pr(456, state="OPEN")
+            .with_pr_base(456, "main")  # GitHub PR correctly targets main
+        )
+
+        result = render_events(execute_land_pr(ops, tmp_path))
+
+        # Should succeed
+        assert isinstance(result, LandPrSuccess)
+        assert result.success is True
+
+    def test_land_pr_errors_when_base_branch_query_fails(self, tmp_path: Path) -> None:
+        """Test that landing errors when get_pr_base_branch returns None.
+
+        Since we already successfully queried the PR (to check it exists and is open),
+        a failure to get the base branch indicates an unexpected API error that should
+        be surfaced to the user rather than silently skipped.
+        """
+        # Setup: B is on main, but GitHub API fails to return base (returns None)
+        ops = (
+            FakeGtKitOps()
+            .with_repo_root(str(tmp_path))
+            .with_branch("branch-B", parent="main")
+            .with_pr(456, state="OPEN")
+            .with_pr_base_unavailable(456)  # Simulate API failure
+        )
+
+        result = render_events(execute_land_pr(ops, tmp_path))
+
+        # Should error - we just queried the PR, so base branch should be available
+        assert isinstance(result, LandPrError)
+        assert result.success is False
+        assert result.error_type == "github_api_error"
+        assert "Failed to get base branch" in result.message
+        assert "gh auth status" in result.message
+
+
 class TestLandPrBody:
     """Tests for PR body handling in land_pr."""
 
