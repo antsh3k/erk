@@ -340,13 +340,19 @@ class LocalRunState:
     user: str  # User who ran the implementation
 
 
-def save_issue_reference(impl_dir: Path, issue_number: int, issue_url: str) -> None:
+def save_issue_reference(
+    impl_dir: Path,
+    issue_number: int,
+    issue_url: str,
+    issue_title: str | None = None,
+) -> None:
     """Save GitHub issue reference to .impl/issue.json.
 
     Args:
         impl_dir: Path to .impl/ directory
         issue_number: GitHub issue number
         issue_url: Full GitHub issue URL
+        issue_title: Optional issue title for reference
 
     Raises:
         FileNotFoundError: If impl_dir doesn't exist
@@ -358,12 +364,12 @@ def save_issue_reference(impl_dir: Path, issue_number: int, issue_url: str) -> N
     issue_file = impl_dir / "issue.json"
     now = datetime.now(UTC).isoformat()
 
-    data = {
+    data: dict[str, str | int] = {
         "issue_number": issue_number,
         "issue_url": issue_url,
         "created_at": now,
         "synced_at": now,
-    }
+    } | ({"issue_title": issue_title} if issue_title is not None else {})
 
     issue_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
