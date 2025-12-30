@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -36,6 +37,13 @@ from erk.cli.commands.up import up_cmd
 from erk.cli.commands.wt import wt_group
 from erk.cli.help_formatter import ErkCommandGroup
 from erk.core.context import create_context
+from erk.core.release_notes import check_for_version_change, get_current_version
+from erk.core.version_check import (
+    format_version_warning,
+    get_required_version,
+    is_version_mismatch,
+)
+from erk_shared.git.real import RealGit
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])  # terse help flags
 
@@ -45,11 +53,8 @@ def _show_version_change_banner() -> None:
 
     Displays all release notes since the last seen version and prompts user
     to confirm before continuing. This function is designed to never fail -
-    any exception is silently caught to ensure the CLI always works.
+    exceptions are logged but don't break the CLI.
     """
-    # Inline import to avoid import-time side effects
-    from erk.core.release_notes import check_for_version_change, get_current_version
-
     try:
         changed, releases = check_for_version_change()
         if not changed or not releases:
@@ -103,9 +108,43 @@ def _show_version_change_banner() -> None:
     except click.Abort:
         # User pressed Ctrl+C or declined - exit gracefully
         raise SystemExit(0) from None
-    except Exception:
-        # Never let release notes break the CLI
-        pass
+    except Exception as e:
+        # Never let release notes break the CLI, but warn so issues can be diagnosed
+        logging.warning("Failed to show version change banner: %s", e)
+
+
+def _show_version_warning() -> None:
+    """Show warning if installed erk version doesn't match repo-required version.
+
+    This is designed to never fail - exceptions are logged but don't break the CLI.
+    """
+    # Skip if user has disabled version checking
+    if os.environ.get("ERK_SKIP_VERSION_CHECK") == "1":
+        return
+
+    try:
+        # Find git repo root (if in a git repo)
+        git = RealGit()
+        repo_root = git.get_repository_root(Path.cwd())
+        if repo_root is None:
+            return
+
+        # Read required version from repo
+        required = get_required_version(repo_root)
+        if required is None:
+            return
+
+        # Compare versions
+        installed = get_current_version()
+        if not is_version_mismatch(installed, required):
+            return
+
+        # Show warning
+        click.echo(format_version_warning(installed, required), err=True)
+        click.echo(file=sys.stderr)
+    except Exception as e:
+        # Never let version checking break the CLI, but warn so issues can be diagnosed
+        logging.warning("Failed to check version: %s", e)
 
 
 @click.group(cls=ErkCommandGroup, context_settings=CONTEXT_SETTINGS)
@@ -121,6 +160,7 @@ def cli(ctx: click.Context, debug: bool, no_sync: bool) -> None:
     # Show version change banner (only on actual CLI runs, not completions)
     if not ctx.resilient_parsing:
         _show_version_change_banner()
+        _show_version_warning()
 
         # Check artifact sync (skip for init and dev commands)
         if ctx.invoked_subcommand not in ("init", "dev"):
