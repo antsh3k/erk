@@ -34,6 +34,7 @@ from erk_shared.github.parsing import (
     parse_aggregated_check_counts,
     parse_gh_auth_status_output,
 )
+from erk_shared.github.retry import RetriesExhausted, RetryRequested, with_retries
 from erk_shared.github.types import (
     BRANCH_NOT_AVAILABLE,
     DISPLAY_TITLE_NOT_AVAILABLE,
@@ -884,7 +885,8 @@ query {{
         start_time = datetime.now(UTC)
         max_attempts = timeout // poll_interval
 
-        for attempt in range(max_attempts):
+        def _fetch_and_find_run() -> str | RetryRequested:
+            """Fetch runs and find matching run, or return RetryRequested if not found."""
             # Query for recent runs with branch info
             runs_cmd = [
                 "gh",
@@ -909,47 +911,48 @@ query {{
 
                 # Parse JSON output
                 runs_data = json.loads(runs_result.stdout)
-                if not runs_data or not isinstance(runs_data, list):
-                    # No runs found, retry
-                    if attempt < max_attempts - 1:
-                        self._time.sleep(poll_interval)
-                        continue
-                    return None
+            except (RuntimeError, FileNotFoundError, json.JSONDecodeError) as e:
+                # Transient API error - retry
+                return RetryRequested(reason=f"API error: {e}")
 
-                # Find run matching our criteria
-                for run in runs_data:
-                    # Skip skipped/cancelled runs
-                    conclusion = run.get("conclusion")
-                    if conclusion in ("skipped", "cancelled"):
-                        continue
+            if not runs_data or not isinstance(runs_data, list):
+                # Data not available yet - keep polling
+                return RetryRequested(reason="No runs data yet")
 
-                    # Match by branch name
-                    head_branch = run.get("headBranch")
-                    if head_branch != branch_name:
-                        continue
-
-                    # Verify run was created after we started polling (within tolerance)
-                    created_at_str = run.get("createdAt")
-                    if created_at_str:
-                        created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
-                        # Allow 5-second tolerance for runs created just before polling started
-                        if created_at >= start_time - timedelta(seconds=5):
-                            run_id = run["databaseId"]
-                            return str(run_id)
-
-                # No matching run found, retry if attempts remaining
-                if attempt < max_attempts - 1:
-                    self._time.sleep(poll_interval)
-
-            except (RuntimeError, FileNotFoundError, json.JSONDecodeError):
-                # Command failed, retry if attempts remaining
-                if attempt < max_attempts - 1:
-                    self._time.sleep(poll_interval)
+            # Find run matching our criteria
+            for run in runs_data:
+                # Skip skipped/cancelled runs
+                conclusion = run.get("conclusion")
+                if conclusion in ("skipped", "cancelled"):
                     continue
-                return None
 
-        # Timeout reached without finding matching run
-        return None
+                # Match by branch name
+                head_branch = run.get("headBranch")
+                if head_branch != branch_name:
+                    continue
+
+                # Verify run was created after we started polling (within tolerance)
+                created_at_str = run.get("createdAt")
+                if created_at_str:
+                    created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                    # Allow 5-second tolerance for runs created just before polling started
+                    if created_at >= start_time - timedelta(seconds=5):
+                        run_id = run["databaseId"]
+                        return str(run_id)
+
+            # Run not found in results yet - keep polling
+            return RetryRequested(reason="Run not found in results")
+
+        result = with_retries(
+            self._time,
+            f"poll for workflow run ({workflow}, {branch_name})",
+            _fetch_and_find_run,
+            retry_delays=[float(poll_interval)] * max_attempts,
+        )
+        if isinstance(result, RetriesExhausted):
+            # Timeout - run never appeared
+            return None
+        return result
 
     def check_auth_status(self) -> tuple[bool, str | None, str | None]:
         """Check GitHub CLI authentication status.

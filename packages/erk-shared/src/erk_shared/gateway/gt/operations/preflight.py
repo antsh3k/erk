@@ -20,7 +20,8 @@ from erk_shared.gateway.gt.types import (
     PreflightResult,
 )
 from erk_shared.github.parsing import parse_git_remote_url
-from erk_shared.github.types import GitHubRepoId, PRNotFound
+from erk_shared.github.retry import RetriesExhausted, RetryRequested, with_retries
+from erk_shared.github.types import GitHubRepoId, PRDetails, PRNotFound
 from erk_shared.impl_folder import has_issue_reference, read_issue_reference
 
 
@@ -225,25 +226,24 @@ def _execute_submit_only(
     yield ProgressEvent("Branch submitted to Graphite", style="success")
 
     # Wait for PR info
-    max_retries = 5
-    retry_delays = [0.5, 1.0, 2.0, 4.0, 8.0]
     repo_root = ops.git.get_repository_root(cwd)
 
     yield ProgressEvent("Waiting for PR info from GitHub API... (gh pr view)")
 
-    pr_details = None
-    for attempt in range(max_retries):
-        if attempt > 0:
-            yield ProgressEvent(f"Attempt {attempt + 1}/{max_retries}...")
+    def poll_for_pr() -> PRDetails | RetryRequested:
+        """Poll for PR info, returning RetryRequested when PR not found."""
         pr_result = ops.github.get_pr_for_branch(repo_root, branch_name)
-        if not isinstance(pr_result, PRNotFound):
-            pr_details = pr_result
-            yield ProgressEvent(f"PR info retrieved (PR #{pr_details.number})", style="success")
-            break
-        if attempt < max_retries - 1:
-            time.sleep(retry_delays[attempt])
+        if isinstance(pr_result, PRNotFound):
+            return RetryRequested(reason="PR not found yet")
+        return pr_result
 
-    if pr_details is None:
+    pr_result = with_retries(
+        ops.time,
+        "poll for PR info",
+        poll_for_pr,
+        retry_delays=[0.5, 1.0, 2.0, 4.0, 8.0],
+    )
+    if isinstance(pr_result, RetriesExhausted):
         yield CompletionEvent(
             PostAnalysisError(
                 success=False,
@@ -254,8 +254,9 @@ def _execute_submit_only(
         )
         return
 
-    pr_number = pr_details.number
-    pr_url = pr_details.url
+    yield ProgressEvent(f"PR info retrieved (PR #{pr_result.number})", style="success")
+    pr_number = pr_result.number
+    pr_url = pr_result.url
     # Get Graphite URL by parsing repo identity from git remote URL (no API call)
     remote_url = ops.git.get_remote_url(repo_root, "origin")
     owner, repo_name = parse_git_remote_url(remote_url)
