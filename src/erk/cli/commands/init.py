@@ -7,6 +7,7 @@ import click
 from erk.cli.core import discover_repo_context
 from erk.core.claude_settings import (
     ERK_PERMISSION,
+    NoBackupCreated,
     add_erk_hooks,
     add_erk_permission,
     get_repo_claude_settings_path,
@@ -188,7 +189,7 @@ def _get_presets_dir() -> Path:
     return Path(__file__).parent.parent / "presets"
 
 
-def offer_claude_permission_setup(repo_root: Path) -> None:
+def offer_claude_permission_setup(repo_root: Path) -> Path | NoBackupCreated:
     """Offer to add erk permission to repo's Claude Code settings.
 
     This checks if the repo's .claude/settings.json exists and whether the erk
@@ -197,6 +198,9 @@ def offer_claude_permission_setup(repo_root: Path) -> None:
 
     Args:
         repo_root: Path to the repository root
+
+    Returns:
+        Path to backup file if one was created, NoBackupCreated sentinel otherwise.
     """
     settings_path = get_repo_claude_settings_path(repo_root)
 
@@ -206,15 +210,15 @@ def offer_claude_permission_setup(repo_root: Path) -> None:
         warning = click.style("⚠️  Warning: ", fg="yellow")
         user_output(warning + "Invalid JSON in .claude/settings.json")
         user_output(f"   {e}")
-        return
+        return NoBackupCreated()
 
     # No settings file - skip silently (repo may not have Claude settings)
     if settings is None:
-        return
+        return NoBackupCreated()
 
     # Permission already exists - skip silently
     if has_erk_permission(settings):
-        return
+        return NoBackupCreated()
 
     # Offer to add permission
     user_output("\nClaude settings found. The erk permission allows Claude to run")
@@ -222,7 +226,7 @@ def offer_claude_permission_setup(repo_root: Path) -> None:
 
     if not click.confirm(f"Add {ERK_PERMISSION} to .claude/settings.json?", default=True):
         user_output("Skipped. You can add the permission manually to .claude/settings.json")
-        return
+        return NoBackupCreated()
 
     # Add permission
     new_settings = add_erk_permission(settings)
@@ -231,10 +235,28 @@ def offer_claude_permission_setup(repo_root: Path) -> None:
     user_output(f"\nThis will update: {settings_path}")
     if not click.confirm("Proceed with writing changes?", default=True):
         user_output("Skipped. No changes made to settings.json")
-        return
+        return NoBackupCreated()
 
-    write_claude_settings(settings_path, new_settings)
+    backup_result = write_claude_settings(settings_path, new_settings)
     user_output(click.style("✓", fg="green") + f" Added {ERK_PERMISSION} to {settings_path}")
+
+    # If backup was created, inform user (deletion offered at end of init)
+    if not isinstance(backup_result, NoBackupCreated):
+        user_output(f"\n📁 Backup created: {backup_result}")
+        user_output(f"   To restore: cp {backup_result} {settings_path}")
+
+    return backup_result
+
+
+def offer_backup_cleanup(backup_path: Path) -> None:
+    """Offer to delete a backup file.
+
+    Args:
+        backup_path: Path to the backup file to potentially delete
+    """
+    if click.confirm("Delete backup?", default=True):
+        backup_path.unlink()
+        user_output(click.style("✓", fg="green") + " Backup deleted")
 
 
 def offer_claude_hook_setup(repo_root: Path) -> None:
@@ -441,9 +463,12 @@ def init_cmd(
     # Skip interactive prompts if requested
     interactive = not no_interactive
 
+    # Track backup files for cleanup at end
+    pending_backup: Path | NoBackupCreated = NoBackupCreated()
+
     if interactive:
         _run_gitignore_prompts(repo_context.root)
-        offer_claude_permission_setup(repo_context.root)
+        pending_backup = offer_claude_permission_setup(repo_context.root)
         offer_claude_hook_setup(repo_context.root)
 
     # On first-time init, offer shell setup if not already completed
@@ -480,3 +505,7 @@ def init_cmd(
                         user_output("\nShell integration instructions were displayed above.")
                         msg = "You can use them now - erk just couldn't save this preference."
                         user_output(msg)
+
+    # Offer to clean up any pending backup files (at end to ensure safety)
+    if not isinstance(pending_backup, NoBackupCreated):
+        offer_backup_cleanup(pending_backup)
