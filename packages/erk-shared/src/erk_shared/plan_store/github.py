@@ -6,12 +6,16 @@ Schema Version 2:
 - Plan content is always fetched fresh (no caching)
 """
 
+import sys
 from datetime import UTC
 from pathlib import Path
 from urllib.parse import urlparse
 
+from erk_shared.gateway.time.abc import Time
+from erk_shared.gateway.time.real import RealTime
 from erk_shared.github.issues import GitHubIssues, IssueInfo
 from erk_shared.github.metadata import extract_plan_from_comment, extract_plan_header_comment_id
+from erk_shared.github.retry import with_github_retry
 from erk_shared.plan_store.store import PlanStore
 from erk_shared.plan_store.types import Plan, PlanQuery, PlanState
 
@@ -26,13 +30,16 @@ class GitHubPlanStore(PlanStore):
     - For old-format issues: body contains plan content directly (backward compatible)
     """
 
-    def __init__(self, github_issues: GitHubIssues):
-        """Initialize GitHubPlanStore with GitHub issues interface.
+    def __init__(self, github_issues: GitHubIssues, time: Time | None = None):
+        """Initialize GitHubPlanStore with GitHub issues interface and optional time dependency.
 
         Args:
             github_issues: GitHubIssues implementation to use for issue operations
+            time: Time abstraction for sleep operations. Defaults to RealTime() for
+                  production use. Pass FakeTime() in tests that need to verify retry behavior.
         """
         self._github_issues = github_issues
+        self._time = time if time is not None else RealTime()
 
     def get_plan(self, repo_root: Path, plan_identifier: str) -> Plan:
         """Fetch plan from GitHub by identifier.
@@ -64,6 +71,42 @@ class GitHubPlanStore(PlanStore):
         plan_body = self._get_plan_body(repo_root, issue_info)
         return self._convert_to_plan(issue_info, plan_body)
 
+    def _fetch_comment_with_retry(
+        self,
+        repo_root: Path,
+        comment_id: int,
+    ) -> str | None:
+        """Fetch comment by ID with retry logic for transient errors.
+
+        Attempts to fetch the comment with exponential backoff to handle
+        transient GitHub API failures. Falls back gracefully if the comment
+        is permanently missing (deleted, invalid ID).
+
+        Uses with_github_retry utility which retries up to 2 times
+        (3 total attempts) with delays of 0.5s and 1s.
+
+        Args:
+            repo_root: Repository root directory
+            comment_id: GitHub comment ID to fetch
+
+        Returns:
+            Plan content extracted from comment, or None if fetch fails
+        """
+        try:
+            comment_body = with_github_retry(
+                self._time,
+                f"fetch plan comment {comment_id}",
+                lambda: self._github_issues.get_comment_by_id(repo_root, comment_id),
+            )
+            return extract_plan_from_comment(comment_body)
+        except RuntimeError:
+            # All retries exhausted - fall back to first comment
+            print(
+                "Falling back to first comment lookup (comment may be deleted)",
+                file=sys.stderr,
+            )
+            return None
+
     def _get_plan_body(self, repo_root: Path, issue_info: IssueInfo) -> str:
         """Get the plan body from the issue.
 
@@ -77,8 +120,7 @@ class GitHubPlanStore(PlanStore):
         plan_body = None
         plan_comment_id = extract_plan_header_comment_id(issue_info.body)
         if plan_comment_id is not None:
-            comment_body = self._github_issues.get_comment_by_id(repo_root, plan_comment_id)
-            plan_body = extract_plan_from_comment(comment_body)
+            plan_body = self._fetch_comment_with_retry(repo_root, plan_comment_id)
 
         if plan_body:
             return plan_body
