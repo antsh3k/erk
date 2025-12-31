@@ -1,9 +1,14 @@
 """Discover artifacts installed in a project's .claude/ and .github/ directories."""
 
 import hashlib
+import json
 from pathlib import Path
 
 from erk.artifacts.models import ArtifactType, InstalledArtifact
+from erk.core.claude_settings import (
+    ERK_EXIT_PLAN_HOOK_COMMAND,
+    ERK_USER_PROMPT_HOOK_COMMAND,
+)
 
 
 def _compute_content_hash(path: Path) -> str:
@@ -134,6 +139,76 @@ def _discover_workflows(workflows_dir: Path) -> list[InstalledArtifact]:
     return artifacts
 
 
+def _extract_hook_name(command: str) -> str:
+    """Extract a meaningful name from a hook command.
+
+    For erk hooks, returns the known name.
+    For local hooks, returns the full command text for identification.
+    """
+    # Check for erk-managed hooks first
+    if command == ERK_USER_PROMPT_HOOK_COMMAND:
+        return "user-prompt-hook"
+    if command == ERK_EXIT_PLAN_HOOK_COMMAND:
+        return "exit-plan-mode-hook"
+
+    # For local hooks, use the full command text as the identifier
+    return command
+
+
+def _discover_hooks(claude_dir: Path) -> list[InstalledArtifact]:
+    """Discover all hooks configured in .claude/settings.json.
+
+    Hooks are configuration entries in settings.json, not files.
+    Discovers both erk-managed hooks and local/user-defined hooks.
+
+    Pattern: hooks.<HookType>[].hooks[].command
+    """
+    settings_path = claude_dir / "settings.json"
+    if not settings_path.exists():
+        return []
+
+    content = settings_path.read_text(encoding="utf-8")
+    settings = json.loads(content)
+    hooks_section = settings.get("hooks", {})
+    if not hooks_section:
+        return []
+
+    artifacts: list[InstalledArtifact] = []
+    seen_names: set[str] = set()
+
+    # Iterate through all hook types (UserPromptSubmit, PreToolUse, etc.)
+    for hook_entries in hooks_section.values():
+        if not isinstance(hook_entries, list):
+            continue
+        for entry in hook_entries:
+            if not isinstance(entry, dict):
+                continue
+            for hook in entry.get("hooks", []):
+                if not isinstance(hook, dict):
+                    continue
+                command = hook.get("command")
+                if not command:
+                    continue
+
+                name = _extract_hook_name(command)
+
+                # Avoid duplicates
+                if name in seen_names:
+                    continue
+                seen_names.add(name)
+
+                artifacts.append(
+                    InstalledArtifact(
+                        name=name,
+                        artifact_type="hook",
+                        path=settings_path,
+                        content_hash=None,  # Hooks don't have individual content hashes
+                    )
+                )
+
+    return artifacts
+
+
 def discover_artifacts(project_dir: Path) -> list[InstalledArtifact]:
     """Scan project directory and return all installed artifacts.
 
@@ -142,6 +217,7 @@ def discover_artifacts(project_dir: Path) -> list[InstalledArtifact]:
     - commands: .claude/commands/<namespace>/<name>.md
     - agents: .claude/agents/<name>/<name>.md
     - workflows: .github/workflows/<name>.yml (all workflows)
+    - hooks: configured in .claude/settings.json
     """
     claude_dir = project_dir / ".claude"
     workflows_dir = project_dir / ".github" / "workflows"
@@ -152,6 +228,7 @@ def discover_artifacts(project_dir: Path) -> list[InstalledArtifact]:
         artifacts.extend(_discover_skills(claude_dir))
         artifacts.extend(_discover_commands(claude_dir))
         artifacts.extend(_discover_agents(claude_dir))
+        artifacts.extend(_discover_hooks(claude_dir))
 
     artifacts.extend(_discover_workflows(workflows_dir))
 

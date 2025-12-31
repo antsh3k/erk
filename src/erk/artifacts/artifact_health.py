@@ -1,10 +1,12 @@
 """Orphaned artifact detection for erk-managed .claude/ directories."""
 
+import json
 from pathlib import Path
 
 from erk.artifacts.detection import is_in_erk_repo
 from erk.artifacts.models import CompletenessCheckResult, OrphanCheckResult
 from erk.artifacts.sync import get_bundled_claude_dir, get_bundled_github_dir
+from erk.core.claude_settings import has_exit_plan_hook, has_user_prompt_hook
 
 # Bundled artifacts that erk syncs to projects
 BUNDLED_SKILLS = frozenset(
@@ -16,6 +18,8 @@ BUNDLED_SKILLS = frozenset(
 )
 BUNDLED_AGENTS = frozenset({"devrun"})
 BUNDLED_WORKFLOWS = frozenset({"erk-impl.yml"})
+# Hook configurations that erk adds to settings.json
+BUNDLED_HOOKS = frozenset({"user-prompt-hook", "exit-plan-mode-hook"})
 
 
 def _find_orphaned_claude_artifacts(
@@ -298,6 +302,39 @@ def _find_missing_workflows(
     return missing
 
 
+def _find_missing_hooks(project_claude_dir: Path) -> dict[str, list[str]]:
+    """Find erk-managed hooks that are missing from settings.json.
+
+    Args:
+        project_claude_dir: Path to project's .claude/ directory
+
+    Returns:
+        Dict mapping "settings.json" to list of missing hook names
+    """
+    settings_path = project_claude_dir / "settings.json"
+    missing: dict[str, list[str]] = {}
+
+    # If no settings.json, all hooks are missing
+    if not settings_path.exists():
+        return {"settings.json": sorted(BUNDLED_HOOKS)}
+
+    content = settings_path.read_text(encoding="utf-8")
+    settings = json.loads(content)
+
+    missing_hooks: list[str] = []
+
+    if not has_user_prompt_hook(settings):
+        missing_hooks.append("user-prompt-hook")
+
+    if not has_exit_plan_hook(settings):
+        missing_hooks.append("exit-plan-mode-hook")
+
+    if missing_hooks:
+        missing["settings.json"] = sorted(missing_hooks)
+
+    return missing
+
+
 def find_missing_artifacts(project_dir: Path) -> CompletenessCheckResult:
     """Find bundled artifacts that are missing from local installation.
 
@@ -338,6 +375,9 @@ def find_missing_artifacts(project_dir: Path) -> CompletenessCheckResult:
     project_workflows_dir = project_dir / ".github" / "workflows"
     bundled_workflows_dir = bundled_github_dir / "workflows"
     missing.update(_find_missing_workflows(project_workflows_dir, bundled_workflows_dir))
+
+    # Check hooks in settings.json
+    missing.update(_find_missing_hooks(project_claude_dir))
 
     return CompletenessCheckResult(
         missing=missing,
