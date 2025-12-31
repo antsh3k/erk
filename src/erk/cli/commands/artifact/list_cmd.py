@@ -5,7 +5,19 @@ from pathlib import Path
 import click
 
 from erk.artifacts.discovery import discover_artifacts
-from erk.artifacts.models import ArtifactType
+from erk.artifacts.models import ArtifactType, InstalledArtifact
+from erk.artifacts.orphans import BUNDLED_AGENTS, BUNDLED_SKILLS
+
+
+def _is_erk_managed(artifact: InstalledArtifact) -> bool:
+    """Check if artifact is managed by erk."""
+    if artifact.artifact_type == "command":
+        return artifact.name.startswith("erk:")
+    if artifact.artifact_type == "skill":
+        return artifact.name in BUNDLED_SKILLS
+    if artifact.artifact_type == "agent":
+        return artifact.name in BUNDLED_AGENTS
+    return False
 
 
 @click.command("list")
@@ -59,12 +71,21 @@ def list_cmd(artifact_type: str | None, verbose: bool) -> None:
             if current_type is not None:
                 click.echo("")  # Blank line between types
             current_type = artifact.artifact_type
-            click.echo(click.style(f"{current_type.upper()}S:", bold=True))
+            # Capitalize first letter only (e.g., "Commands:")
+            header = current_type.capitalize() + "s:"
+            click.echo(click.style(header, bold=True))
+
+        # Format badge based on management status
+        is_managed = _is_erk_managed(artifact)
+        if is_managed:
+            badge = click.style(" [erk]", fg="cyan")
+        else:
+            badge = click.style(" [local]", fg="yellow")
 
         if verbose:
-            click.echo(f"  {artifact.name}")
-            click.echo(click.style(f"    Path: {artifact.path}", dim=True))
+            click.echo(f"    {artifact.name}{badge}")
+            click.echo(click.style(f"      Path: {artifact.path}", dim=True))
             if artifact.content_hash:
-                click.echo(click.style(f"    Hash: {artifact.content_hash}", dim=True))
+                click.echo(click.style(f"      Hash: {artifact.content_hash}", dim=True))
         else:
-            click.echo(f"  {artifact.name}")
+            click.echo(f"    {artifact.name}{badge}")
