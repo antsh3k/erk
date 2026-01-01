@@ -34,8 +34,10 @@ from erk_shared.context.helpers import (
 from erk_shared.context.helpers import (
     require_issues as require_github_issues,
 )
+from erk_shared.extraction.local_plans import extract_slugs_from_session, get_plans_dir
 from erk_shared.github.plan_issues import create_plan_issue
 from erk_shared.output.next_steps import format_next_steps_plain
+from erk_shared.scratch.plan_snapshots import snapshot_plan_for_session
 from erk_shared.scratch.scratch import get_scratch_dir
 
 
@@ -182,8 +184,29 @@ def plan_save_to_issue(
     session_ids: list[str] = []
 
     # Step 9: Create signal file to indicate plan was saved
+    snapshot_result = None
     if effective_session_id:
         _create_plan_saved_signal(effective_session_id, repo_root)
+
+        # Step 9.1: Snapshot the plan file to session-scoped storage
+        # Determine plan file path
+        if plan_file:
+            snapshot_path = plan_file
+        else:
+            # Look up slug from session to find plan file
+            slugs = extract_slugs_from_session(effective_session_id, cwd_hint=str(cwd))
+            if slugs:
+                snapshot_path = get_plans_dir() / f"{slugs[-1]}.md"
+            else:
+                snapshot_path = None
+
+        if snapshot_path is not None and snapshot_path.exists():
+            snapshot_result = snapshot_plan_for_session(
+                session_id=effective_session_id,
+                plan_file_path=snapshot_path,
+                cwd_hint=str(cwd),
+                repo_root=repo_root,
+            )
 
     # Step 10: Output success
     # Detect enrichment status for informational output
@@ -201,19 +224,20 @@ def plan_save_to_issue(
         click.echo(f"Enrichment: {'Yes' if is_enriched else 'No'}")
         if session_context_chunks > 0:
             click.echo(f"Session context: {session_context_chunks} chunks")
+        if snapshot_result is not None:
+            click.echo(f"Archived: {snapshot_result.snapshot_dir}")
         click.echo()
         click.echo(format_next_steps_plain(result.issue_number))
     else:
-        click.echo(
-            json.dumps(
-                {
-                    "success": True,
-                    "issue_number": result.issue_number,
-                    "issue_url": result.issue_url,
-                    "title": result.title,
-                    "enriched": is_enriched,
-                    "session_context_chunks": session_context_chunks,
-                    "session_ids": session_ids,
-                }
-            )
-        )
+        output_data = {
+            "success": True,
+            "issue_number": result.issue_number,
+            "issue_url": result.issue_url,
+            "title": result.title,
+            "enriched": is_enriched,
+            "session_context_chunks": session_context_chunks,
+            "session_ids": session_ids,
+        }
+        if snapshot_result is not None:
+            output_data["archived_to"] = str(snapshot_result.snapshot_dir)
+        click.echo(json.dumps(output_data))

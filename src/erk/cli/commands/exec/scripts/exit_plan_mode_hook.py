@@ -48,6 +48,7 @@ import click
 
 from erk.hooks.decorators import logged_hook, project_scoped
 from erk_shared.extraction.local_plans import extract_slugs_from_session
+from erk_shared.scratch.plan_snapshots import snapshot_plan_for_session
 from erk_shared.scratch.scratch import _get_repo_root, get_scratch_dir
 
 # ============================================================================
@@ -345,13 +346,25 @@ def _gather_inputs() -> HookInput:
     )
 
 
-def _execute_result(result: HookOutput, session_id: str | None) -> None:
+def _execute_result(result: HookOutput, hook_input: HookInput) -> None:
     """Execute the decision result. All I/O happens here."""
+    session_id = hook_input.session_id
+
     if result.delete_implement_now_signal and session_id:
         _get_implement_now_signal_path(session_id).unlink()
 
     if result.delete_plan_saved_signal and session_id:
         _get_plan_saved_signal_path(session_id).unlink()
+
+    # Snapshot plan whenever a plan exists and user made a decision
+    # (implement-now or plan-saved, but NOT when blocking to prompt)
+    user_made_decision = result.delete_implement_now_signal or result.delete_plan_saved_signal
+    if hook_input.plan_file_path is not None and session_id is not None and user_made_decision:
+        snapshot_plan_for_session(
+            session_id=session_id,
+            plan_file_path=hook_input.plan_file_path,
+            cwd_hint=str(_get_repo_root()),
+        )
 
     if result.message:
         click.echo(result.message, err=True)
@@ -379,7 +392,7 @@ def exit_plan_mode_hook() -> None:
     result = determine_exit_action(hook_input)
 
     # Execute result (I/O layer)
-    _execute_result(result, hook_input.session_id)
+    _execute_result(result, hook_input)
 
 
 if __name__ == "__main__":

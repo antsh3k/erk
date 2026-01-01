@@ -8,6 +8,11 @@ selection and session-scoped lookup via slugs.
 import json
 from pathlib import Path
 
+from erk_shared.extraction.session_schema import (
+    extract_agent_id_from_tool_result,
+    extract_task_tool_use_id,
+)
+
 
 def get_plans_dir() -> Path:
     """Return the Claude plans directory path.
@@ -147,6 +152,56 @@ def extract_slugs_from_session(session_id: str, cwd_hint: str | None = None) -> 
             seen_slugs.add(slug)
 
     return slugs
+
+
+def extract_planning_agent_ids(session_id: str, cwd_hint: str | None) -> list[str]:
+    """Extract agent IDs for Task invocations with subagent_type='Plan'.
+
+    Searches session logs for Task tool invocations where subagent_type is "Plan",
+    then correlates with tool_result entries to extract the agentId.
+
+    Args:
+        session_id: The session ID to search for.
+        cwd_hint: Optional current working directory for faster lookup.
+
+    Returns:
+        List of agent IDs in format ["agent-<id>", ...].
+    """
+    project_dir = find_project_dir_for_session(session_id, cwd_hint=cwd_hint)
+    if project_dir is None:
+        return []
+
+    # Read all entries for this session
+    entries = _iter_session_entries(project_dir, session_id)
+
+    # Step 1: Collect Task tool_use entries with subagent_type="Plan"
+    plan_task_ids: set[str] = set()
+
+    # Step 2: Collect tool_result entries: tool_use_id -> agentId
+    tool_to_agent: dict[str, str] = {}
+
+    for entry in entries:
+        entry_type = entry.get("type")
+
+        if entry_type == "assistant":
+            tool_use_id = extract_task_tool_use_id(entry, subagent_type="Plan")
+            if tool_use_id is not None:
+                plan_task_ids.add(tool_use_id)
+
+        elif entry_type == "user":
+            result = extract_agent_id_from_tool_result(entry)
+            if result is not None:
+                tool_use_id, agent_id = result
+                tool_to_agent[tool_use_id] = agent_id
+
+    # Step 3: Match Plan Task IDs with their agent IDs
+    agent_ids: list[str] = []
+    for tool_use_id in plan_task_ids:
+        agent_id = tool_to_agent.get(tool_use_id)
+        if agent_id:
+            agent_ids.append(f"agent-{agent_id}")
+
+    return agent_ids
 
 
 def get_latest_plan_content(session_id: str | None = None) -> str | None:
