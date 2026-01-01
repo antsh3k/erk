@@ -53,7 +53,7 @@ from pathlib import Path
 
 import click
 
-from erk.hooks.decorators import logged_hook, project_scoped
+from erk.hooks.decorators import logged_hook
 from erk_shared.context.helpers import require_repo_root
 from erk_shared.extraction.local_plans import extract_slugs_from_session
 from erk_shared.scratch.plan_snapshots import snapshot_plan_for_session
@@ -258,13 +258,13 @@ def _get_implement_now_signal_path(session_id: str, repo_root: Path) -> Path:
 
     Args:
         session_id: The session ID to build the path for
-        repo_root: Repository root path
+        repo_root: Path to the git repository root
 
     Returns:
         Path to implement-now signal file
     """
-    scratch = get_scratch_dir(session_id, repo_root=repo_root)
-    return scratch / "exit-plan-mode-hook.implement-now.signal"
+    scratch_dir = get_scratch_dir(session_id, repo_root=repo_root)
+    return scratch_dir / "exit-plan-mode-hook.implement-now.signal"
 
 
 def _get_plan_saved_signal_path(session_id: str, repo_root: Path) -> Path:
@@ -275,13 +275,13 @@ def _get_plan_saved_signal_path(session_id: str, repo_root: Path) -> Path:
 
     Args:
         session_id: The session ID to build the path for
-        repo_root: Repository root path
+        repo_root: Path to the git repository root
 
     Returns:
         Path to plan-saved signal file
     """
-    scratch = get_scratch_dir(session_id, repo_root=repo_root)
-    return scratch / "exit-plan-mode-hook.plan-saved.signal"
+    scratch_dir = get_scratch_dir(session_id, repo_root=repo_root)
+    return scratch_dir / "exit-plan-mode-hook.plan-saved.signal"
 
 
 def _get_incremental_plan_signal_path(session_id: str, repo_root: Path) -> Path:
@@ -293,7 +293,7 @@ def _get_incremental_plan_signal_path(session_id: str, repo_root: Path) -> Path:
 
     Args:
         session_id: The session ID to build the path for
-        repo_root: Repository root path
+        repo_root: Path to the git repository root
 
     Returns:
         Path to incremental-plan signal file
@@ -306,7 +306,7 @@ def _find_session_plan(session_id: str, repo_root: Path) -> Path | None:
 
     Args:
         session_id: The session ID to search for
-        repo_root: Repository root path
+        repo_root: Path to the git repository root
 
     Returns:
         Path to plan file if found, None otherwise
@@ -350,11 +350,7 @@ def _get_current_branch_within_hook() -> str | None:
 
 
 def _gather_inputs(repo_root: Path) -> HookInput:
-    """Gather all inputs from environment. All I/O happens here.
-
-    Args:
-        repo_root: Repository root path for locating scratch files
-    """
+    """Gather all inputs from environment. All I/O happens here."""
     session_id = _get_session_id_from_stdin()
 
     # Determine signal existence
@@ -362,12 +358,10 @@ def _gather_inputs(repo_root: Path) -> HookInput:
     plan_saved_signal_exists = False
     incremental_plan_signal_exists = False
     if session_id:
-        implement_signal = _get_implement_now_signal_path(session_id, repo_root)
-        saved_signal = _get_plan_saved_signal_path(session_id, repo_root)
-        incremental_signal = _get_incremental_plan_signal_path(session_id, repo_root)
-        implement_now_signal_exists = implement_signal.exists()
-        plan_saved_signal_exists = saved_signal.exists()
-        incremental_plan_signal_exists = incremental_signal.exists()
+        implement_now_signal_exists = _get_implement_now_signal_path(session_id, repo_root).exists()
+        plan_saved_signal_exists = _get_plan_saved_signal_path(session_id, repo_root).exists()
+        signal_path = _get_incremental_plan_signal_path(session_id, repo_root)
+        incremental_plan_signal_exists = signal_path.exists()
 
     # Find plan file path (None if doesn't exist)
     plan_file_path: Path | None = None
@@ -398,13 +392,7 @@ def _gather_inputs(repo_root: Path) -> HookInput:
 
 
 def _execute_result(result: HookOutput, hook_input: HookInput, repo_root: Path) -> None:
-    """Execute the decision result. All I/O happens here.
-
-    Args:
-        result: The hook output decision
-        hook_input: The gathered hook inputs
-        repo_root: Repository root path for locating scratch files
-    """
+    """Execute the decision result. All I/O happens here."""
     session_id = hook_input.session_id
 
     if result.delete_implement_now_signal and session_id:
@@ -435,7 +423,6 @@ def _execute_result(result: HookOutput, hook_input: HookInput, repo_root: Path) 
 @click.command(name="exit-plan-mode-hook")
 @click.pass_context
 @logged_hook
-@project_scoped
 def exit_plan_mode_hook(ctx: click.Context) -> None:
     """Prompt user about plan saving when ExitPlanMode is called.
 
@@ -448,6 +435,10 @@ def exit_plan_mode_hook(ctx: click.Context) -> None:
     """
     # Inject repo_root from context
     repo_root = require_repo_root(ctx)
+
+    # Inline scope check: only run in erk-managed projects
+    if not (repo_root / ".erk").is_dir():
+        return
 
     # Gather all inputs (I/O layer)
     hook_input = _gather_inputs(repo_root)
