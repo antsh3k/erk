@@ -9,6 +9,26 @@ import tomllib
 from pathlib import Path
 
 
+def is_repo_erk_ified(repo_root: Path) -> bool:
+    """Check if a repository has been initialized with erk.
+
+    A repository is considered erk-ified if it has a .erk/config.toml file.
+
+    Args:
+        repo_root: Path to the repository root
+
+    Returns:
+        True if .erk/config.toml exists, False otherwise
+
+    Example:
+        >>> repo_root = Path("/path/to/repo")
+        >>> is_repo_erk_ified(repo_root)
+        False
+    """
+    config_path = repo_root / ".erk" / "config.toml"
+    return config_path.exists()
+
+
 def detect_root_project_name(repo_root: Path) -> str | None:
     """Return the declared project name at the repo root, if any.
 
@@ -142,6 +162,34 @@ def get_shell_wrapper_content(shell_integration_dir: Path, shell: str) -> str:
         raise ValueError(f"Shell wrapper not found for {shell}")
 
     return wrapper_file.read_text(encoding="utf-8")
+
+
+# Marker string that identifies erk shell integration in RC files
+ERK_SHELL_INTEGRATION_MARKER = "# Erk shell integration"
+
+
+def has_shell_integration_in_rc(rc_path: Path) -> bool:
+    """Check if shell RC file contains erk shell integration.
+
+    Looks for the marker comment that erk adds when shell integration is configured.
+
+    Args:
+        rc_path: Path to the shell RC file (e.g., ~/.zshrc)
+
+    Returns:
+        True if the marker is found in the file, False otherwise
+        (also returns False if file doesn't exist)
+
+    Example:
+        >>> rc_path = Path.home() / ".zshrc"
+        >>> has_shell_integration_in_rc(rc_path)
+        False
+    """
+    if not rc_path.exists():
+        return False
+
+    content = rc_path.read_text(encoding="utf-8")
+    return ERK_SHELL_INTEGRATION_MARKER in content
 
 
 def add_gitignore_entry(content: str, entry: str) -> str:
