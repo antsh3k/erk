@@ -1786,3 +1786,115 @@ query {{
             response.get("data", {}).get("addPullRequestReviewThreadReply", {}).get("comment")
         )
         return comment_data is not None
+
+    def create_pr_review_comment(
+        self,
+        repo_root: Path,
+        pr_number: int,
+        body: str,
+        commit_sha: str,
+        path: str,
+        line: int,
+    ) -> int:
+        """Create an inline review comment on a specific line of a PR.
+
+        Uses GitHub REST API to create a pull request review comment.
+        """
+        cmd = [
+            "gh",
+            "api",
+            f"repos/{{owner}}/{{repo}}/pulls/{pr_number}/comments",
+            "-f",
+            f"body={body}",
+            "-f",
+            f"commit_id={commit_sha}",
+            "-f",
+            f"path={path}",
+            "-F",
+            f"line={line}",
+            "-f",
+            "side=RIGHT",
+        ]
+
+        stdout = execute_gh_command(cmd, repo_root)
+        response = json.loads(stdout)
+        return response["id"]
+
+    def find_pr_comment_by_marker(
+        self,
+        repo_root: Path,
+        pr_number: int,
+        marker: str,
+    ) -> int | None:
+        """Find a PR/issue comment containing a specific HTML marker.
+
+        Uses REST API to list issue comments (PRs are issues in GitHub's model).
+        Returns the numeric database ID needed for update operations.
+        Fetches all comments as JSON and searches in Python to avoid
+        shell escaping issues with special characters in markers.
+        """
+        cmd = [
+            "gh",
+            "api",
+            f"repos/{{owner}}/{{repo}}/issues/{pr_number}/comments",
+            "--paginate",
+        ]
+
+        try:
+            stdout = execute_gh_command(cmd, repo_root)
+            comments = json.loads(stdout)
+            for comment in comments:
+                body = comment.get("body", "")
+                if marker in body:
+                    comment_id = comment.get("id")
+                    if comment_id is not None:
+                        return int(comment_id)
+            return None
+        except RuntimeError as e:
+            # Command failed - log for diagnostics but return None
+            # (marker not found is expected on first run)
+            debug_log(f"find_pr_comment_by_marker failed: {e}")
+            return None
+
+    def update_pr_comment(
+        self,
+        repo_root: Path,
+        comment_id: int,
+        body: str,
+    ) -> None:
+        """Update an existing PR/issue comment.
+
+        Uses GitHub REST API via gh api command.
+        """
+        cmd = [
+            "gh",
+            "api",
+            "--method",
+            "PATCH",
+            f"repos/{{owner}}/{{repo}}/issues/comments/{comment_id}",
+            "-f",
+            f"body={body}",
+        ]
+        execute_gh_command(cmd, repo_root)
+
+    def create_pr_comment(
+        self,
+        repo_root: Path,
+        pr_number: int,
+        body: str,
+    ) -> int:
+        """Create a new comment on a PR.
+
+        Uses GitHub REST API to create the comment and returns the ID.
+        PRs are issues in GitHub's data model, so we use the issues endpoint.
+        """
+        cmd = [
+            "gh",
+            "api",
+            f"repos/{{owner}}/{{repo}}/issues/{pr_number}/comments",
+            "-f",
+            f"body={body}",
+        ]
+        stdout = execute_gh_command(cmd, repo_root)
+        response = json.loads(stdout)
+        return response["id"]
