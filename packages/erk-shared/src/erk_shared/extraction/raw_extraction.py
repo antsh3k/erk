@@ -209,8 +209,14 @@ def create_raw_extraction_plan(
         github_issues=github_issues,
         repo_root=repo_root,
         plan_content=raw_body,
+        title=None,
         plan_type="extraction",
+        extra_labels=None,
+        title_suffix=None,
+        source_plan_issues=None,
         extraction_session_ids=session_ids,
+        source_repo=None,
+        objective_issue=None,
     )
 
     if not plan_result.success:
