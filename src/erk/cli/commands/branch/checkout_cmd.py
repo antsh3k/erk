@@ -10,8 +10,7 @@ from erk.cli.commands.completions import complete_branch_names
 from erk.cli.commands.wt.create_cmd import ensure_worktree_for_branch
 from erk.cli.core import discover_repo_context
 from erk.cli.graphite import find_worktrees_containing_branch
-from erk.cli.graphite_command import GraphiteCommandWithHiddenOptions
-from erk.cli.help_formatter import script_option
+from erk.cli.help_formatter import CommandWithHiddenOptions, script_option
 from erk.core.context import ErkContext
 from erk.core.repo_discovery import RepoContext, ensure_erk_metadata_dir
 from erk.core.worktree_utils import compute_relative_path_in_worktree
@@ -78,6 +77,11 @@ def _ensure_graphite_tracking(
         branch: Target branch name
         script: Whether to output only the activation script
     """
+    # Skip if Graphite is disabled
+    use_graphite = ctx.global_config.use_graphite if ctx.global_config else False
+    if not use_graphite:
+        return
+
     trunk_branch = ctx.trunk_branch
     # Skip if no trunk branch detected (shouldn't happen in checkout context)
     if trunk_branch is None:
@@ -253,7 +257,7 @@ def _perform_checkout(
 
 
 @alias("co")
-@click.command("checkout", cls=GraphiteCommandWithHiddenOptions)
+@click.command("checkout", cls=CommandWithHiddenOptions)
 @click.argument("branch", metavar="BRANCH", shell_complete=complete_branch_names)
 @script_option
 @click.pass_obj
