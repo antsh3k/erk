@@ -89,11 +89,19 @@ Summary format (preserve existing Activity Log entries and prepend new entry):
 ```
 <!-- tripwires-review -->
 
-## Tripwires Review
+## ✅ Tripwires Review   (use ✅ if 0 violations, ❌ if 1+ violations)
 
 **Last updated:** YYYY-MM-DD HH:MM:SS PT
 
 Found X violations across Y files. Inline comments posted for each.
+
+### Patterns Checked
+✅ import time / time.sleep() - None found
+✅ Bare subprocess.run - None found
+❌ __all__ exports - Found in src/foo.py:12
+✅ /tmp/ for AI workflows - None found
+
+(Use ✅ when pattern NOT found, ❌ when pattern found. Only list patterns relevant to the diff.)
 
 ### Violations Summary
 - `file.py:123`: [brief description]
