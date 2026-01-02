@@ -4,9 +4,17 @@ from pathlib import Path
 
 import click
 
-from erk.artifacts.artifact_health import find_missing_artifacts, find_orphaned_artifacts
+from erk.artifacts.artifact_health import (
+    ArtifactStatus,
+    find_missing_artifacts,
+    find_orphaned_artifacts,
+    get_artifact_health,
+    is_erk_managed,
+)
 from erk.artifacts.discovery import discover_artifacts
+from erk.artifacts.models import InstalledArtifact
 from erk.artifacts.staleness import check_staleness
+from erk.artifacts.state import load_artifact_state
 
 
 def _display_orphan_warnings(orphans: dict[str, list[str]]) -> None:
@@ -43,6 +51,25 @@ def _display_missing_warnings(missing: dict[str, list[str]]) -> None:
     click.echo("   Run 'erk artifact sync' to install missing artifacts")
 
 
+def _format_artifact_path(artifact: InstalledArtifact) -> str:
+    """Format artifact as a display path string."""
+    if artifact.artifact_type == "command":
+        # Commands can be namespaced (local:foo) or top-level (foo)
+        if ":" in artifact.name:
+            namespace, name = artifact.name.split(":", 1)
+            return f"commands/{namespace}/{name}.md"
+        return f"commands/{artifact.name}.md"
+    if artifact.artifact_type == "skill":
+        return f"skills/{artifact.name}"
+    if artifact.artifact_type == "agent":
+        return f"agents/{artifact.name}"
+    if artifact.artifact_type == "workflow":
+        return f".github/workflows/{artifact.name}.yml"
+    if artifact.artifact_type == "hook":
+        return f"hooks/{artifact.name} (settings.json)"
+    return artifact.name
+
+
 def _display_installed_artifacts(project_dir: Path) -> None:
     """Display list of artifacts actually installed in project."""
     artifacts = discover_artifacts(project_dir)
@@ -52,26 +79,106 @@ def _display_installed_artifacts(project_dir: Path) -> None:
         return
 
     for artifact in artifacts:
-        # Format based on artifact type
-        if artifact.artifact_type == "command":
-            # Commands can be namespaced (local:foo) or top-level (foo)
-            if ":" in artifact.name:
-                namespace, name = artifact.name.split(":", 1)
-                click.echo(f"   commands/{namespace}/{name}.md")
-            else:
-                click.echo(f"   commands/{artifact.name}.md")
-        elif artifact.artifact_type == "skill":
-            click.echo(f"   skills/{artifact.name}")
-        elif artifact.artifact_type == "agent":
-            click.echo(f"   agents/{artifact.name}")
-        elif artifact.artifact_type == "workflow":
-            click.echo(f"   .github/workflows/{artifact.name}.yml")
-        elif artifact.artifact_type == "hook":
-            click.echo(f"   hooks/{artifact.name} (settings.json)")
+        suffix = "" if is_erk_managed(artifact) else " (unmanaged)"
+        click.echo(f"   {_format_artifact_path(artifact)}{suffix}")
+
+
+def _format_artifact_status(artifact: ArtifactStatus, show_hashes: bool) -> str:
+    """Format artifact status for verbose output.
+
+    Args:
+        artifact: The artifact status to format
+        show_hashes: If True, show hash comparison details
+    """
+    if artifact.status == "up-to-date":
+        icon = click.style("✓", fg="green")
+        detail = f"{artifact.current_version} (up-to-date)"
+    elif artifact.status == "changed-upstream":
+        icon = click.style("⚠", fg="yellow")
+        if artifact.installed_version:
+            detail = f"{artifact.installed_version} → {artifact.current_version} (changed upstream)"
+        else:
+            detail = f"→ {artifact.current_version} (new in this version)"
+    elif artifact.status == "locally-modified":
+        icon = click.style("⚠", fg="yellow")
+        detail = f"{artifact.current_version} (locally modified)"
+    else:  # not-installed
+        icon = click.style("✗", fg="red")
+        detail = "(not installed)"
+
+    lines = [f"  {icon} {artifact.name}: {detail}"]
+
+    if show_hashes:
+        # Show state.toml values
+        if artifact.installed_version is not None and artifact.installed_hash is not None:
+            ver = artifact.installed_version
+            h = artifact.installed_hash
+            lines.append(f"       state.toml: version={ver}, hash={h}")
+        else:
+            lines.append("       state.toml: (not tracked)")
+
+        # Show current source values
+        if artifact.current_hash is not None:
+            ver = artifact.current_version
+            h = artifact.current_hash
+            lines.append(f"       source:     version={ver}, hash={h}")
+        else:
+            lines.append("       source:     (not installed)")
+
+    return "\n".join(lines)
+
+
+def _display_verbose_status(project_dir: Path, show_hashes: bool) -> bool:
+    """Display per-artifact status breakdown.
+
+    Shows two sections:
+    1. Erk-managed artifacts with version tracking status
+    2. Project artifacts (local commands, custom skills, etc.)
+
+    Args:
+        project_dir: Path to the project root
+        show_hashes: If True, show hash comparison details for each artifact
+
+    Returns True if any erk-managed artifacts need attention (not up-to-date).
+    """
+    state = load_artifact_state(project_dir)
+    saved_files = dict(state.files) if state else {}
+
+    health_result = get_artifact_health(project_dir, saved_files)
+
+    if health_result.skipped_reason is not None:
+        return False
+
+    click.echo("")
+    click.echo("Erk-managed artifacts:")
+
+    has_issues = False
+    for artifact in health_result.artifacts:
+        click.echo(_format_artifact_status(artifact, show_hashes))
+        if artifact.status != "up-to-date":
+            has_issues = True
+
+    # Also show project-specific artifacts (non-erk-managed)
+    all_artifacts = discover_artifacts(project_dir)
+    project_artifacts = [a for a in all_artifacts if not is_erk_managed(a)]
+
+    if project_artifacts:
+        click.echo("")
+        click.echo("Project artifacts (unmanaged):")
+        for artifact in project_artifacts:
+            click.echo(f"   {_format_artifact_path(artifact)}")
+
+    return has_issues
 
 
 @click.command("check")
-def check_cmd() -> None:
+@click.option(
+    "--verbose",
+    "-v",
+    count=True,
+    help="Show per-artifact status. Use -vv to also show hash comparisons.",
+)
+def check_cmd(verbose: int) -> None:
     """Check if artifacts are in sync with erk version.
 
     Compares the version recorded in .erk/state.toml against
@@ -83,6 +190,14 @@ def check_cmd() -> None:
     \b
       # Check sync status
       erk artifact check
+
+    \b
+      # Show per-artifact breakdown
+      erk artifact check -v
+
+    \b
+      # Show hash comparisons (state.toml vs source)
+      erk artifact check -vv
     """
     project_dir = Path.cwd()
 
@@ -91,11 +206,14 @@ def check_cmd() -> None:
     missing_result = find_missing_artifacts(project_dir)
 
     has_errors = False
+    show_per_artifact = verbose >= 1
+    show_hashes = verbose >= 2
 
     # Check staleness
     if staleness_result.reason == "erk-repo":
         click.echo(click.style("✓ ", fg="green") + "Development mode (artifacts read from source)")
-        _display_installed_artifacts(project_dir)
+        if not show_per_artifact:
+            _display_installed_artifacts(project_dir)
     elif staleness_result.reason == "not-initialized":
         click.echo(click.style("⚠️  ", fg="yellow") + "Artifacts not initialized")
         click.echo(f"   Current erk version: {staleness_result.current_version}")
@@ -112,7 +230,15 @@ def check_cmd() -> None:
             click.style("✓ ", fg="green")
             + f"Artifacts up to date (v{staleness_result.current_version})"
         )
-        _display_installed_artifacts(project_dir)
+        if not show_per_artifact:
+            _display_installed_artifacts(project_dir)
+
+    # Show verbose per-artifact breakdown if requested
+    if show_per_artifact and staleness_result.reason != "not-initialized":
+        verbose_has_issues = _display_verbose_status(project_dir, show_hashes)
+        # In dev mode (erk-repo), don't report issues - artifacts come from source
+        if verbose_has_issues and staleness_result.reason != "erk-repo":
+            has_errors = True
 
     # Check for orphans (skip if erk-repo or no-claude-dir)
     if orphan_result.skipped_reason is None:
