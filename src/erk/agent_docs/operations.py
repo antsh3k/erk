@@ -19,6 +19,7 @@ from erk.agent_docs.models import (
     SyncResult,
     Tripwire,
 )
+from erk_shared.subprocess_utils import run_subprocess_with_context
 
 AGENT_DOCS_DIR = "docs/learned"
 FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
@@ -491,6 +492,24 @@ def generate_category_index(category: CategoryInfo) -> str:
     return "\n".join(lines)
 
 
+def _format_with_prettier(content: str, file_path: Path) -> str:
+    """Format markdown content with prettier.
+
+    Args:
+        content: The markdown content to format.
+        file_path: Path to use for prettier's parser detection.
+
+    Returns:
+        Formatted content.
+    """
+    result = run_subprocess_with_context(
+        ["prettier", "--stdin-filepath", str(file_path)],
+        operation_context="format markdown with prettier",
+        input=content,
+    )
+    return result.stdout
+
+
 def _update_index_file(
     index_path: Path,
     content: str,
@@ -511,19 +530,22 @@ def _update_index_file(
     """
     rel_path = str(index_path.relative_to(index_path.parent.parent.parent))
 
+    # Format content with prettier before comparing or writing
+    formatted_content = _format_with_prettier(content, index_path)
+
     if not index_path.exists():
         if not dry_run:
-            index_path.write_text(content, encoding="utf-8")
+            index_path.write_text(formatted_content, encoding="utf-8")
         created.append(rel_path)
         return
 
     existing = index_path.read_text(encoding="utf-8")
-    if existing == content:
+    if existing == formatted_content:
         unchanged.append(rel_path)
         return
 
     if not dry_run:
-        index_path.write_text(content, encoding="utf-8")
+        index_path.write_text(formatted_content, encoding="utf-8")
     updated.append(rel_path)
 
 
@@ -549,20 +571,23 @@ def _update_generated_file(
     """
     rel_path = str(file_path.relative_to(agent_docs_root.parent.parent))
 
+    # Format content with prettier before comparing or writing
+    formatted_content = _format_with_prettier(content, file_path)
+
     if not file_path.exists():
         if not dry_run:
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_text(content, encoding="utf-8")
+            file_path.write_text(formatted_content, encoding="utf-8")
         created.append(rel_path)
         return
 
     existing = file_path.read_text(encoding="utf-8")
-    if existing == content:
+    if existing == formatted_content:
         unchanged.append(rel_path)
         return
 
     if not dry_run:
-        file_path.write_text(content, encoding="utf-8")
+        file_path.write_text(formatted_content, encoding="utf-8")
     updated.append(rel_path)
 
 
