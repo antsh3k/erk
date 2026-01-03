@@ -10,7 +10,6 @@ from erk_shared.context.context import ErkContext
 from erk_shared.context.types import LoadedConfig, RepoContext
 from erk_shared.core.fakes import (
     FakeClaudeExecutor,
-    FakeConfigStore,
     FakePlanListService,
     FakePlannerRegistry,
     FakeScriptWriter,
@@ -128,7 +127,6 @@ def context_for_test(
         completion=FakeCompletion(),
         feedback=FakeUserFeedback(),
         claude_executor=FakeClaudeExecutor(),
-        config_store=FakeConfigStore(),
         script_writer=FakeScriptWriter(),
         planner_registry=FakePlannerRegistry(),
         plan_list_service=FakePlanListService(),

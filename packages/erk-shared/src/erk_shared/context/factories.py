@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 
 from erk_shared.core.fakes import (
     FakeClaudeExecutor,
-    FakeConfigStore,
     FakePlanListService,
     FakePlannerRegistry,
     FakeScriptWriter,
@@ -139,7 +138,6 @@ def create_minimal_context(*, debug: bool, cwd: Path | None = None) -> ErkContex
         completion=FakeCompletion(),
         feedback=SuppressedFeedback(),
         claude_executor=FakeClaudeExecutor(),
-        config_store=FakeConfigStore(),
         script_writer=FakeScriptWriter(),
         planner_registry=FakePlannerRegistry(),
         plan_list_service=FakePlanListService(),
