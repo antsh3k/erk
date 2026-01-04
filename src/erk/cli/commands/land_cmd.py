@@ -169,11 +169,12 @@ def _cleanup_and_navigate(
     if worktree_path is not None:
         # Confirm cleanup unless --force
         if not force:
-            if not click.confirm(f"Delete worktree and branch '{branch}'?", default=True, err=True):
+            if not user_confirm(
+                f"Delete worktree '{worktree_path.name}' (branch '{branch}')?",
+                default=True,
+            ):
                 user_output("Worktree preserved. Branch still exists locally.")
-                # Still need to navigate if we're in the worktree being preserved
-                if is_current_branch:
-                    _navigate_after_land(ctx, repo, script, pull_flag, target_child_branch=None)
+                # User declined deletion - stay in current location
                 return
 
         delete_branch_and_worktree(ctx, repo, branch, worktree_path)
