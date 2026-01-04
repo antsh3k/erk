@@ -1,5 +1,6 @@
 """Implementation folder collector."""
 
+import logging
 from pathlib import Path
 
 import frontmatter
@@ -13,6 +14,8 @@ from erk_shared.impl_folder import (
     parse_progress_frontmatter,
     read_issue_reference,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def detect_enriched_plan(repo_root: Path) -> tuple[Path | None, str | None]:
