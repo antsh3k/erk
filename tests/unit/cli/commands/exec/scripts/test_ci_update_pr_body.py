@@ -176,7 +176,7 @@ def test_impl_no_pr_for_branch(tmp_path: Path) -> None:
 
     assert isinstance(result, UpdateError)
     assert result.success is False
-    assert result.error == "pr_not_found"
+    assert result.error == "pr-not-found"
 
 
 def test_impl_empty_diff(tmp_path: Path) -> None:
@@ -231,7 +231,7 @@ def test_impl_empty_diff(tmp_path: Path) -> None:
 
     assert isinstance(result, UpdateError)
     assert result.success is False
-    assert result.error == "empty_diff"
+    assert result.error == "empty-diff"
 
 
 def test_impl_claude_failure(tmp_path: Path) -> None:
@@ -286,7 +286,7 @@ def test_impl_claude_failure(tmp_path: Path) -> None:
 
     assert isinstance(result, UpdateError)
     assert result.success is False
-    assert result.error == "claude_execution_failed"
+    assert result.error == "claude-execution-failed"
     assert "non-zero exit code" in result.message
     assert result.stderr == "API error"
 
@@ -345,7 +345,7 @@ def test_impl_claude_failure_truncates_long_stderr(tmp_path: Path) -> None:
 
     assert isinstance(result, UpdateError)
     assert result.success is False
-    assert result.error == "claude_execution_failed"
+    assert result.error == "claude-execution-failed"
     # Stderr should be truncated to 500 characters
     assert result.stderr is not None
     assert len(result.stderr) == 500
@@ -403,7 +403,7 @@ def test_impl_claude_empty_output(tmp_path: Path) -> None:
 
     assert isinstance(result, UpdateError)
     assert result.success is False
-    assert result.error == "claude_empty_output"
+    assert result.error == "claude-empty-output"
     assert "empty output" in result.message.lower()
     assert result.stderr is None
 
@@ -552,7 +552,7 @@ def test_cli_error_exit_code(tmp_path: Path) -> None:
     assert result.exit_code == 1
     output = json.loads(result.output)
     assert output["success"] is False
-    assert output["error"] == "pr_not_found"
+    assert output["error"] == "pr-not-found"
 
 
 def test_cli_requires_issue_number() -> None:
