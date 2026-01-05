@@ -7,12 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-As of `c8114413e`
+## [0.4.3] - 2026-01-05 07:55 PT
 
 ### Added
 
 - Add `erk upgrade` command to update local installation to repo's required version
 - Display plan issue closure status after landing PR
+- Display plan title and file path in exit plan mode prompt for better context
 
 ### Changed
 
