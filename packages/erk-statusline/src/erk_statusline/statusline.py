@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import subprocess
 import sys
 import time
@@ -25,6 +26,27 @@ from erk_statusline.context import StatuslineContext
 # Cache configuration
 CACHE_DIR = Path("/tmp/erk-statusline-cache")
 CACHE_TTL_SECONDS = 30
+
+# Logging setup - file-based to avoid polluting stderr (which breaks status line)
+# Logs go to ~/.erk/logs/statusline/<session-id>.log for per-session isolation
+_logger = logging.getLogger("erk_statusline")
+_logger.setLevel(logging.DEBUG)
+_logging_initialized = False
+
+
+def _setup_logging(session_id: str) -> None:
+    """Setup logging for a specific session. Called once per session."""
+    global _logging_initialized
+    if _logging_initialized:
+        return
+
+    log_dir = Path.home() / ".erk" / "logs" / "statusline"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{session_id}.log"
+    handler = logging.FileHandler(log_file)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    _logger.addHandler(handler)
+    _logging_initialized = True
 
 
 def _get_cache_path(owner: str, repo: str, branch: str) -> Path:
@@ -44,11 +66,15 @@ def _get_cached_pr_info(owner: str, repo: str, branch: str) -> tuple[int, str] |
     """
     cache_path = _get_cache_path(owner, repo, branch)
     if not cache_path.exists():
+        _logger.debug("Cache miss: %s/%s branch=%s (no cache file)", owner, repo, branch)
         return None
 
     cache_stat = cache_path.stat()
     cache_age = time.time() - cache_stat.st_mtime
     if cache_age > CACHE_TTL_SECONDS:
+        _logger.debug(
+            "Cache miss: %s/%s branch=%s (expired, age=%.1fs)", owner, repo, branch, cache_age
+        )
         return None
 
     try:
@@ -57,9 +83,17 @@ def _get_cached_pr_info(owner: str, repo: str, branch: str) -> tuple[int, str] |
         pr_number = data.get("pr_number")
         head_sha = data.get("head_sha")
         if isinstance(pr_number, int) and isinstance(head_sha, str):
+            _logger.debug(
+                "Cache hit: %s/%s branch=%s -> pr=%d sha=%s",
+                owner,
+                repo,
+                branch,
+                pr_number,
+                head_sha[:7],
+            )
             return (pr_number, head_sha)
     except (json.JSONDecodeError, OSError, KeyError):
-        pass
+        _logger.debug("Cache miss: %s/%s branch=%s (parse error)", owner, repo, branch)
 
     return None
 
@@ -73,6 +107,14 @@ def _set_cached_pr_info(owner: str, repo: str, branch: str, pr_number: int, head
 
     cache_data = {"pr_number": pr_number, "head_sha": head_sha}
     cache_path.write_text(json.dumps(cache_data), encoding="utf-8")
+    _logger.debug(
+        "Cache write: %s/%s branch=%s -> pr=%d sha=%s",
+        owner,
+        repo,
+        branch,
+        pr_number,
+        head_sha[:7],
+    )
 
 
 class RepoInfo(NamedTuple):
@@ -362,12 +404,23 @@ def get_pr_info_via_branch_manager(
     return (pr_info.number, pr_info.state, pr_info.is_draft)
 
 
-def _fetch_pr_details(owner: str, repo: str, pr_number: int, cwd: str, timeout: float) -> str:
-    """Fetch PR details for mergeable status.
+class PRDetailsResult(NamedTuple):
+    """Result from fetching PR details."""
+
+    mergeable: str  # "MERGEABLE", "CONFLICTING", or "UNKNOWN"
+    head_sha: str  # Commit SHA of the PR head (empty string on error)
+
+
+def _fetch_pr_details(
+    owner: str, repo: str, pr_number: int, cwd: str, timeout: float
+) -> PRDetailsResult:
+    """Fetch PR details for mergeable status and head SHA.
 
     Returns:
-        Mergeable status: "MERGEABLE", "CONFLICTING", or "UNKNOWN".
+        PRDetailsResult with mergeable status and head SHA.
     """
+    _logger.debug("Fetching PR details: %s/%s #%d", owner, repo, pr_number)
+    start_time = time.time()
     try:
         result = subprocess.run(
             ["gh", "api", f"repos/{owner}/{repo}/pulls/{pr_number}"],
@@ -377,45 +430,101 @@ def _fetch_pr_details(owner: str, repo: str, pr_number: int, cwd: str, timeout: 
             timeout=timeout,
         )
 
+        elapsed = time.time() - start_time
         if result.returncode != 0:
-            return "UNKNOWN"
+            _logger.debug(
+                "PR details fetch failed: %s/%s #%d returncode=%d in %.2fs",
+                owner,
+                repo,
+                pr_number,
+                result.returncode,
+                elapsed,
+            )
+            return PRDetailsResult(mergeable="UNKNOWN", head_sha="")
 
         pr_detail = json.loads(result.stdout)
         mergeable_value = pr_detail.get("mergeable")
         mergeable_state = pr_detail.get("mergeable_state", "")
 
+        # Extract head SHA from PR response
+        head_sha = ""
+        head_info = pr_detail.get("head")
+        if isinstance(head_info, dict):
+            sha = head_info.get("sha")
+            if isinstance(sha, str):
+                head_sha = sha
+
         # Map REST mergeable fields to GraphQL-style values
         if mergeable_value is True:
-            return "MERGEABLE"
+            status = "MERGEABLE"
         elif mergeable_value is False:
-            if mergeable_state == "dirty":
-                return "CONFLICTING"
-            return "UNKNOWN"
-        # mergeable is null (GitHub hasn't computed yet)
-        return "UNKNOWN"
+            status = "CONFLICTING" if mergeable_state == "dirty" else "UNKNOWN"
+        else:
+            # mergeable is null (GitHub hasn't computed yet)
+            status = "UNKNOWN"
 
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, json.JSONDecodeError):
-        return "UNKNOWN"
+        _logger.debug(
+            "PR details fetched: %s/%s #%d in %.2fs -> %s sha=%s",
+            owner,
+            repo,
+            pr_number,
+            elapsed,
+            status,
+            head_sha[:7] if head_sha else "",
+        )
+        return PRDetailsResult(mergeable=status, head_sha=head_sha)
+
+    except subprocess.TimeoutExpired:
+        elapsed = time.time() - start_time
+        _logger.debug("PR details timeout: %s/%s #%d after %.2fs", owner, repo, pr_number, elapsed)
+        return PRDetailsResult(mergeable="UNKNOWN", head_sha="")
+    except (subprocess.SubprocessError, json.JSONDecodeError) as e:
+        elapsed = time.time() - start_time
+        _logger.debug(
+            "PR details error: %s/%s #%d in %.2fs - %s", owner, repo, pr_number, elapsed, e
+        )
+        return PRDetailsResult(mergeable="UNKNOWN", head_sha="")
 
 
 def _fetch_check_runs(
-    owner: str, repo: str, head_sha: str, cwd: str, timeout: float
+    owner: str, repo: str, ref: str, cwd: str, timeout: float
 ) -> list[dict[str, str]]:
-    """Fetch check runs for a commit.
+    """Fetch check runs for a git ref.
+
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        ref: Git ref - can be a SHA, branch name, or tag name.
+             Using branch name resolves to GitHub's HEAD for that branch,
+             avoiding issues when local branch differs from remote.
+        cwd: Working directory for subprocess
+        timeout: Timeout in seconds
 
     Returns:
         List of check context dicts with __typename, conclusion, status, name.
     """
+    ref_display = ref[:20] + "..." if len(ref) > 20 else ref
+    _logger.debug("Fetching check runs: %s/%s ref=%s", owner, repo, ref_display)
+    start_time = time.time()
     try:
         result = subprocess.run(
-            ["gh", "api", f"repos/{owner}/{repo}/commits/{head_sha}/check-runs"],
+            ["gh", "api", f"repos/{owner}/{repo}/commits/{ref}/check-runs"],
             cwd=cwd,
             capture_output=True,
             text=True,
             timeout=timeout,
         )
 
+        elapsed = time.time() - start_time
         if result.returncode != 0:
+            _logger.debug(
+                "Check runs fetch failed: %s/%s ref=%s returncode=%d in %.2fs",
+                owner,
+                repo,
+                ref_display,
+                result.returncode,
+                elapsed,
+            )
             return []
 
         check_runs_data = json.loads(result.stdout)
@@ -432,9 +541,36 @@ def _fetch_check_runs(
                 }
             )
 
+        _logger.debug(
+            "Check runs fetched: %s/%s ref=%s in %.2fs -> %d checks",
+            owner,
+            repo,
+            ref_display,
+            elapsed,
+            len(check_contexts),
+        )
         return check_contexts
 
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, json.JSONDecodeError):
+    except subprocess.TimeoutExpired:
+        elapsed = time.time() - start_time
+        _logger.debug(
+            "Check runs timeout: %s/%s ref=%s after %.2fs",
+            owner,
+            repo,
+            ref_display,
+            elapsed,
+        )
+        return []
+    except (subprocess.SubprocessError, json.JSONDecodeError) as e:
+        elapsed = time.time() - start_time
+        _logger.debug(
+            "Check runs error: %s/%s ref=%s in %.2fs - %s",
+            owner,
+            repo,
+            ref_display,
+            elapsed,
+            e,
+        )
         return []
 
 
@@ -454,9 +590,13 @@ def fetch_github_data_via_gateway(
     Returns:
         GitHubData with PR info and checks, or None if unable to fetch.
     """
+    _logger.debug("Fetching GitHub data for branch=%s", branch)
+    start_time = time.time()
+
     # Get owner/repo from git remote
     repo_info = get_github_repo_via_gateway(ctx, repo_root)
     if repo_info is None:
+        _logger.debug("GitHub data fetch: no repo info found")
         return None
     owner, repo = repo_info
 
@@ -465,6 +605,7 @@ def fetch_github_data_via_gateway(
 
     if pr_info is None:
         # No PR for this branch
+        _logger.debug("GitHub data fetch: no PR for branch=%s", branch)
         return GitHubData(
             owner=owner,
             repo=repo,
@@ -476,26 +617,39 @@ def fetch_github_data_via_gateway(
         )
 
     pr_number, pr_state, is_draft = pr_info
+    _logger.debug(
+        "GitHub data fetch: found PR #%d state=%s draft=%s", pr_number, pr_state, is_draft
+    )
 
-    # Get head SHA for check runs - need to use git gateway
-    head_sha = ctx.git.get_branch_head(repo_root, branch)
-    if head_sha is None:
-        head_sha = ""
-
-    # Fetch PR details and check runs in parallel (still using REST for these)
+    # Fetch PR details and check runs in parallel
+    # Note: check runs uses branch name (not local SHA) which resolves to GitHub's HEAD,
+    # avoiding issues when local branch differs from remote (e.g., after Graphite squash)
     cwd = str(ctx.cwd)
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             pr_future = executor.submit(_fetch_pr_details, owner, repo, pr_number, cwd, 1.5)
-            checks_future = executor.submit(_fetch_check_runs, owner, repo, head_sha, cwd, 1.5)
+            checks_future = executor.submit(_fetch_check_runs, owner, repo, branch, cwd, 1.5)
 
             # Wait for both with combined timeout
-            mergeable = pr_future.result(timeout=2)
+            pr_details = pr_future.result(timeout=2)
             check_contexts = checks_future.result(timeout=2)
+        mergeable = pr_details.mergeable
     except TimeoutError:
         # If parallel execution times out, use defaults
+        parallel_elapsed = time.time() - start_time
+        _logger.debug("GitHub data fetch: ThreadPoolExecutor timeout after %.2fs", parallel_elapsed)
         mergeable = "UNKNOWN"
         check_contexts = []
+
+    elapsed = time.time() - start_time
+    _logger.debug(
+        "GitHub data fetch complete: branch=%s pr=%d mergeable=%s checks=%d in %.2fs",
+        branch,
+        pr_number,
+        mergeable,
+        len(check_contexts),
+        elapsed,
+    )
 
     return GitHubData(
         owner=owner,
@@ -785,6 +939,11 @@ def main():
         data = json.load(sys.stdin)
         cwd = data.get("workspace", {}).get("current_dir", "")
 
+        # Setup logging with session ID
+        session_id = data.get("session_id", "unknown")
+        _setup_logging(session_id)
+        _logger.debug("Statusline invoked: session=%s cwd=%s", session_id, cwd)
+
         # Get git status and repo info
         branch = ""
         is_dirty = False
@@ -833,6 +992,15 @@ def main():
         if repo_info:
             repo_name = repo_info.repo
 
+        # Log final checks status for debugging
+        checks_status = get_checks_status(github_data)
+        _logger.debug(
+            "Final result: branch=%s pr=%s checks=%s",
+            branch,
+            repo_info.pr_number if repo_info else "",
+            checks_status if checks_status else "(empty)",
+        )
+
         # Build complete statusline as single TokenSeq
         statusline = TokenSeq(
             (
@@ -852,6 +1020,7 @@ def main():
         print(statusline.join(" "), end="")
 
     except Exception as e:
+        _logger.exception("Statusline error: %s", e)
         print(f"➜  error │ {e}", end="")
 
 
