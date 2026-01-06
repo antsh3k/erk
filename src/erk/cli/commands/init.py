@@ -33,6 +33,7 @@ from erk.core.init_utils import (
     is_repo_named,
     render_config_template,
 )
+from erk.core.release_notes import get_current_version
 from erk.core.repo_discovery import (
     NoRepoSentinel,
     discover_repo_or_sentinel,
@@ -42,6 +43,9 @@ from erk.core.shell import Shell
 from erk_shared.context.types import GlobalConfig
 from erk_shared.extraction.claude_installation import RealClaudeInstallation
 from erk_shared.git.real import RealGit
+from erk_shared.github.issues.abc import GitHubIssues
+from erk_shared.github.issues.real import RealGitHubIssues
+from erk_shared.github.plan_issues import get_erk_label_definitions
 from erk_shared.output.output import user_confirm, user_output
 
 
@@ -263,7 +267,7 @@ def offer_claude_permission_setup(repo_root: Path) -> Path | NoBackupCreated:
     user_output("\nClaude settings found. The erk permission allows Claude to run")
     user_output("erk commands without prompting for approval each time.")
 
-    if not user_confirm(f"Add {ERK_PERMISSION} to .claude/settings.json?", default=False):
+    if not user_confirm(f"Add {ERK_PERMISSION} to .claude/settings.json?", default=True):
         user_output("Skipped. You can add the permission manually to .claude/settings.json")
         return NoBackupCreated()
 
@@ -339,6 +343,64 @@ def offer_claude_hook_setup(repo_root: Path) -> None:
     new_settings = add_erk_hooks(settings)
     write_claude_settings(settings_path, new_settings)
     user_output(click.style("✓", fg="green") + " Added erk hooks")
+
+
+def create_plans_repo_labels(
+    repo_root: Path,
+    plans_repo: str,
+    github_issues: GitHubIssues,
+) -> str | None:
+    """Create erk labels in the target issues repository.
+
+    Args:
+        repo_root: Path to the working repository root (used for gh CLI context)
+        plans_repo: Target repository in "owner/repo" format
+        github_issues: GitHubIssues interface for label operations
+
+    Returns:
+        None on success, error message string on failure
+    """
+    labels = get_erk_label_definitions()
+
+    for label in labels:
+        github_issues.ensure_label_exists(
+            repo_root=repo_root,
+            label=label.name,
+            description=label.description,
+            color=label.color,
+        )
+
+    return None
+
+
+def offer_plans_repo_label_setup(repo_root: Path, plans_repo: str) -> None:
+    """Offer to set up erk labels in the target issues repository.
+
+    When a plans_repo is configured, issues are created in a separate repository
+    from the working repository. This function ensures all required erk labels
+    (erk-plan, erk-extraction, erk-objective) exist in that target repository.
+
+    Args:
+        repo_root: Path to the working repository root (used for gh CLI context)
+        plans_repo: Target repository in "owner/repo" format
+    """
+    user_output(f"\nPlans repo configured: {plans_repo}")
+    user_output("Erk uses labels (erk-plan, erk-extraction, erk-objective) to organize issues.")
+
+    if not user_confirm(f"Set up erk labels in {plans_repo}?", default=True):
+        user_output("Skipped. You can set up labels later with: erk doctor --fix")
+        return
+
+    github_issues = RealGitHubIssues(target_repo=plans_repo)
+
+    try:
+        create_plans_repo_labels(repo_root, plans_repo, github_issues)
+        user_output(click.style("✓", fg="green") + f" Labels configured in {plans_repo}")
+    except RuntimeError as e:
+        warning = click.style("⚠️  Warning: ", fg="yellow")
+        user_output(warning + f"Failed to set up labels in {plans_repo}")
+        user_output(f"   {e}")
+        user_output("   You can try again with: erk doctor --fix")
 
 
 def perform_statusline_setup(settings_path: Path | None) -> bool:
@@ -611,6 +673,11 @@ def init_cmd(
         cfg_path.write_text(content, encoding="utf-8")
         user_output(f"  Wrote {cfg_path}")
 
+        # Create required version file
+        version_file = erk_dir / "required-erk-uv-tool-version"
+        version_file.write_text(f"{get_current_version()}\n", encoding="utf-8")
+        user_output(f"  Wrote {version_file}")
+
         # Sync artifacts (skills, commands, agents, workflows, actions)
         sync_result = sync_artifacts(repo_context.root, force=False)
         if sync_result.success:
@@ -645,6 +712,13 @@ def init_cmd(
             _run_gitignore_prompts(repo_context.root)
             pending_backup = offer_claude_permission_setup(repo_context.root)
             offer_claude_hook_setup(repo_context.root)
+
+            # Check if plans_repo is configured and offer label setup
+            from erk.cli.config import load_config as load_repo_config
+
+            repo_config = load_repo_config(repo_context.root)
+            if repo_config.plans_repo is not None:
+                offer_plans_repo_label_setup(repo_context.root, repo_config.plans_repo)
 
         # Offer to clean up any pending backup files (at end of project setup)
         if not isinstance(pending_backup, NoBackupCreated):
