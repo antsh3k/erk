@@ -74,6 +74,12 @@ jobs:
             uv tool install -e . --with erk-shared
           fi
 
+      - name: Validate Claude credentials
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: erk exec validate-claude-credentials
+
       - name: Configure git
         env:
           SUBMITTED_BY: ${{ inputs.submitted_by }}
