@@ -3,12 +3,14 @@
 import click
 
 from erk.cli.alias import alias
+from erk.cli.commands.checkout_helpers import navigate_to_worktree
 from erk.cli.commands.completions import complete_worktree_names
-from erk.cli.commands.navigation_helpers import activate_root_repo, activate_worktree
+from erk.cli.commands.navigation_helpers import activate_root_repo
 from erk.cli.core import discover_repo_context
 from erk.cli.ensure import Ensure
 from erk.cli.help_formatter import CommandWithHiddenOptions, script_option
 from erk.core.context import ErkContext
+from erk.core.worktree_utils import compute_relative_path_in_worktree
 from erk_shared.output.output import user_output
 
 
@@ -88,23 +90,24 @@ def wt_checkout(ctx: ErkContext, worktree_name: str, script: bool) -> None:
         target_worktree, f"Worktree '{worktree_name}' not found in git worktree list"
     )
 
-    # Always navigate to worktree root and preserve relative path
-    target_path = worktree_path
+    # Navigate to worktree
+    branch_name = target_worktree.branch or "(detached HEAD)"
+    styled_wt = click.style(worktree_name, fg="cyan", bold=True)
+    styled_branch = click.style(branch_name, fg="yellow")
 
-    # Show worktree and branch info (only in non-script mode)
-    if not script:
-        branch_name = target_worktree.branch or "(detached HEAD)"
-        styled_wt = click.style(worktree_name, fg="cyan", bold=True)
-        styled_branch = click.style(branch_name, fg="yellow")
-        user_output(f"Went to worktree {styled_wt} [{styled_branch}]")
+    # Compute relative path to preserve directory position
+    relative_path = compute_relative_path_in_worktree(worktrees, ctx.cwd)
 
-    # Activate the worktree
-    activate_worktree(
-        ctx=ctx,
-        repo=repo,
-        target_path=target_path,
+    should_output = navigate_to_worktree(
+        ctx,
+        worktree_path=worktree_path,
+        branch=branch_name,
         script=script,
         command_name="co",
-        preserve_relative_path=True,
+        script_message=f'echo "Went to worktree {styled_wt} [{styled_branch}]"',
+        relative_path=relative_path,
         post_cd_commands=None,
     )
+
+    if should_output:
+        user_output(f"Went to worktree {styled_wt} [{styled_branch}]")
