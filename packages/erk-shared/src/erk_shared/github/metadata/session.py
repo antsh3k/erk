@@ -346,3 +346,115 @@ def get_default_max_chunk_size() -> int:
         Default max chunk size (GITHUB_COMMENT_SIZE_LIMIT - CHUNK_SAFETY_BUFFER)
     """
     return GITHUB_COMMENT_SIZE_LIMIT - CHUNK_SAFETY_BUFFER
+
+
+def render_session_prompts_block(
+    prompts: list[str],
+    *,
+    max_prompt_display_length: int,
+) -> str:
+    """Render session prompts as a metadata block with numbered markdown blocks.
+
+    Creates a collapsible metadata block containing user prompts from
+    the planning session, formatted as numbered code blocks for readability.
+
+    Args:
+        prompts: List of user prompt strings to include.
+        max_prompt_display_length: Maximum characters to show per prompt.
+            Prompts longer than this are truncated with "..." suffix.
+
+    Returns:
+        Rendered metadata block markdown string.
+
+    Example output:
+        <!-- WARNING: Machine-generated. Manual edits may break erk tooling. -->
+        <!-- erk:metadata-block:planning-session-prompts -->
+        <details>
+        <summary><code>planning-session-prompts</code> (3 prompts)</summary>
+
+        **Prompt 1:**
+
+        ```
+        Add a dark mode toggle
+        ```
+
+        **Prompt 2:**
+
+        ```
+        Make sure tests pass
+        ```
+
+        </details>
+        <!-- /erk:metadata-block:planning-session-prompts -->
+    """
+    # Build the numbered prompt blocks
+    prompt_blocks: list[str] = []
+    for i, prompt in enumerate(prompts, start=1):
+        # Truncate long prompts for display
+        display_text = prompt
+        if len(prompt) > max_prompt_display_length:
+            display_text = prompt[: max_prompt_display_length - 3] + "..."
+
+        block = f"""**Prompt {i}:**
+
+```
+{display_text}
+```"""
+        prompt_blocks.append(block)
+
+    # Join blocks with blank lines
+    content = "\n\n".join(prompt_blocks)
+
+    # Summary shows count
+    count_suffix = f" ({len(prompts)} prompt{'s' if len(prompts) != 1 else ''})"
+
+    return f"""<!-- WARNING: Machine-generated. Manual edits may break erk tooling. -->
+<!-- erk:metadata-block:planning-session-prompts -->
+<details>
+<summary><code>planning-session-prompts</code>{count_suffix}</summary>
+
+{content}
+
+</details>
+<!-- /erk:metadata-block:planning-session-prompts -->"""
+
+
+def extract_prompts_from_session_prompts_block(block_body: str) -> list[str] | None:
+    """Extract prompts list from a planning-session-prompts metadata block.
+
+    Parses the <details> structure to find numbered prompt blocks and extract
+    the prompt text from each code fence.
+
+    Args:
+        block_body: Raw body content from a planning-session-prompts metadata block.
+
+    Returns:
+        List of prompt strings, or None if parsing fails.
+    """
+    # The planning-session-prompts block has format:
+    # <details>
+    # <summary><code>planning-session-prompts</code> (N prompts)</summary>
+    #
+    # **Prompt 1:**
+    #
+    # ```
+    # First prompt text
+    # ```
+    #
+    # **Prompt 2:**
+    #
+    # ```
+    # Second prompt text
+    # ```
+    #
+    # </details>
+
+    # Find all prompt blocks: **Prompt N:** followed by a code fence
+    # Pattern: **Prompt \d+:** followed by ``` ... ```
+    pattern = r"\*\*Prompt \d+:\*\*\s*\n\n```\n(.*?)\n```"
+    matches = re.findall(pattern, block_body, re.DOTALL)
+
+    if not matches:
+        return None
+
+    return [match.strip() for match in matches]
