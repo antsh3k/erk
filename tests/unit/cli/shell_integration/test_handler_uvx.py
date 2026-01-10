@@ -3,12 +3,20 @@
 from unittest.mock import patch
 
 from erk.cli.shell_integration.handler import _invoke_hidden_command
+from erk_shared.gateway.console.fake import FakeConsole
 
 
 def test_handler_warns_for_shell_integration_commands_via_uvx(capsys) -> None:
     """Warning is displayed for shell integration commands invoked via uvx."""
+    console = FakeConsole(
+        is_interactive=True,
+        is_stdout_tty=None,
+        is_stderr_tty=None,
+        confirm_responses=[True],
+    )
+
     with patch("erk.cli.shell_integration.handler.is_running_via_uvx", return_value=True):
-        with patch("erk.cli.shell_integration.handler.user_confirm", return_value=True):
+        with patch("erk.cli.shell_integration.handler._console", console):
             with patch("erk.cli.shell_integration.handler.subprocess.run") as mock_run:
                 mock_run.return_value.returncode = 0
                 mock_run.return_value.stdout = ""
@@ -24,8 +32,15 @@ def test_handler_warns_for_shell_integration_commands_via_uvx(capsys) -> None:
 
 def test_handler_includes_command_name_in_warning(capsys) -> None:
     """Warning message includes the specific command being invoked."""
+    console = FakeConsole(
+        is_interactive=True,
+        is_stdout_tty=None,
+        is_stderr_tty=None,
+        confirm_responses=[True],
+    )
+
     with patch("erk.cli.shell_integration.handler.is_running_via_uvx", return_value=True):
-        with patch("erk.cli.shell_integration.handler.user_confirm", return_value=True):
+        with patch("erk.cli.shell_integration.handler._console", console):
             with patch("erk.cli.shell_integration.handler.subprocess.run") as mock_run:
                 mock_run.return_value.returncode = 0
                 mock_run.return_value.stdout = ""
@@ -38,8 +53,15 @@ def test_handler_includes_command_name_in_warning(capsys) -> None:
 
 def test_handler_aborts_when_user_declines_confirmation() -> None:
     """Handler returns exit code 1 when user declines confirmation."""
+    console = FakeConsole(
+        is_interactive=True,
+        is_stdout_tty=None,
+        is_stderr_tty=None,
+        confirm_responses=[False],
+    )
+
     with patch("erk.cli.shell_integration.handler.is_running_via_uvx", return_value=True):
-        with patch("erk.cli.shell_integration.handler.user_confirm", return_value=False):
+        with patch("erk.cli.shell_integration.handler._console", console):
             result = _invoke_hidden_command("checkout", ("feature-branch",))
 
     # Should return non-zero exit code when user declines
@@ -50,8 +72,15 @@ def test_handler_aborts_when_user_declines_confirmation() -> None:
 
 def test_handler_continues_when_user_confirms() -> None:
     """Handler proceeds with command when user confirms."""
+    console = FakeConsole(
+        is_interactive=True,
+        is_stdout_tty=None,
+        is_stderr_tty=None,
+        confirm_responses=[True],
+    )
+
     with patch("erk.cli.shell_integration.handler.is_running_via_uvx", return_value=True):
-        with patch("erk.cli.shell_integration.handler.user_confirm", return_value=True):
+        with patch("erk.cli.shell_integration.handler._console", console):
             with patch("erk.cli.shell_integration.handler.subprocess.run") as mock_run:
                 mock_run.return_value.returncode = 0
                 mock_run.return_value.stdout = "/tmp/script.sh"

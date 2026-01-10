@@ -1,12 +1,12 @@
 """Tests for statusline setup during init.
 
-Mock Usage Policy:
+Fake Usage Policy:
 ------------------
-This file uses minimal mocking for external boundaries:
+This file uses FakeConsole for user confirmation testing:
 
-1. user_confirm mocking:
-   - LEGITIMATE: Testing CLI's response to user confirmation
-   - The prompt logic is a boundary (TTY interaction)
+1. FakeConsole injection:
+   - Testing CLI's response to user confirmation
+   - FakeConsole provides deterministic confirm_responses
    - Here we test that statusline setup handles yes/no responses appropriately
 
 NOTE: These tests use perform_statusline_setup() directly with path injection
@@ -15,11 +15,12 @@ to avoid mocking HOME environment variable.
 
 import json
 from pathlib import Path
-from unittest import mock
+from unittest.mock import patch
 
 import pytest
 
 from erk.cli.commands.init.main import perform_statusline_setup
+from erk_shared.gateway.console.fake import FakeConsole
 
 
 def test_statusline_setup_configures_empty_settings(
@@ -34,9 +35,8 @@ def test_statusline_setup_configures_empty_settings(
     settings_path = claude_dir / "settings.json"
     settings_path.write_text("{}", encoding="utf-8")
 
-    # Mock user_confirm to return True (confirm write)
-    with mock.patch("erk.cli.commands.init.main.user_confirm", return_value=True):
-        perform_statusline_setup(settings_path=settings_path)
+    # No prompt needed for empty settings - just writes directly
+    perform_statusline_setup(settings_path=settings_path)
 
     # Verify settings were written
     updated_settings = json.loads(settings_path.read_text(encoding="utf-8"))
@@ -54,9 +54,8 @@ def test_statusline_setup_creates_settings_if_missing(
     # No settings.json file
     settings_path = tmp_path / ".claude" / "settings.json"
 
-    # Mock user_confirm to return True (confirm write)
-    with mock.patch("erk.cli.commands.init.main.user_confirm", return_value=True):
-        perform_statusline_setup(settings_path=settings_path)
+    # No prompt needed for missing settings - just writes directly
+    perform_statusline_setup(settings_path=settings_path)
 
     # Verify file was created
     assert settings_path.exists()
@@ -104,8 +103,14 @@ def test_statusline_setup_prompts_for_different_command(tmp_path: Path) -> None:
     }
     settings_path.write_text(json.dumps(existing_settings), encoding="utf-8")
 
-    # Mock user_confirm to return False (decline replacement)
-    with mock.patch("erk.cli.commands.init.main.user_confirm", return_value=False):
+    # Use FakeConsole with confirm_responses=[False] (decline replacement)
+    console = FakeConsole(
+        is_interactive=True,
+        is_stdout_tty=None,
+        is_stderr_tty=None,
+        confirm_responses=[False],
+    )
+    with patch("erk.cli.commands.init.main._console", console):
         perform_statusline_setup(settings_path=settings_path)
 
     # Verify settings were NOT changed
@@ -131,8 +136,14 @@ def test_statusline_setup_replaces_when_confirmed(
     }
     settings_path.write_text(json.dumps(existing_settings), encoding="utf-8")
 
-    # Mock user_confirm to return True for both prompts
-    with mock.patch("erk.cli.commands.init.main.user_confirm", return_value=True):
+    # Use FakeConsole with confirm_responses=[True] (confirm replacement)
+    console = FakeConsole(
+        is_interactive=True,
+        is_stdout_tty=None,
+        is_stderr_tty=None,
+        confirm_responses=[True],
+    )
+    with patch("erk.cli.commands.init.main._console", console):
         perform_statusline_setup(settings_path=settings_path)
 
     # Verify settings were updated
