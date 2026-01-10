@@ -67,6 +67,28 @@ TERMINAL_EDITORS = frozenset(
 )
 
 
+def abbreviate_for_header(current_branch: str | None) -> str:
+    """Abbreviate branch name to fit in 12-char header for AskUserQuestion.
+
+    Args:
+        current_branch: Current git branch name, or None.
+
+    Returns:
+        Abbreviated header string, max 12 characters.
+        Examples:
+        - "P4535-add-feature" -> "br:P4535-ad" (11 chars)
+        - "feature-x" -> "br:feature-x" (12 chars)
+        - None -> "Plan Action"
+    """
+    if current_branch is None:
+        return "Plan Action"
+    # Truncate if too long: "br:" + 9 chars = 12 max
+    abbreviated = current_branch
+    if len(abbreviated) > 9:
+        abbreviated = abbreviated[:9]
+    return f"br:{abbreviated}"
+
+
 def is_terminal_editor(editor: str | None) -> bool:
     """Check if editor is a terminal-based (TUI) editor.
 
@@ -261,13 +283,13 @@ def build_blocking_message(
     if current_branch:
         statusline_parts.append(f"br:{current_branch}")
     if pr_number is not None:
-        statusline_parts.append(f"gh:#{pr_number}")
+        statusline_parts.append(f"pr:#{pr_number}")
     if plan_issue_number is not None:
         statusline_parts.append(f"plan:#{plan_issue_number}")
 
     if statusline_parts:
         statusline = " ".join(f"({part})" for part in statusline_parts)
-        context_lines.append(statusline)
+        context_lines.append(f"Current context: {statusline}")
 
     context_block = "\n".join(context_lines)
 
@@ -277,13 +299,17 @@ def build_blocking_message(
     else:
         question_text = "What would you like to do with this plan?"
 
+    # Build header for AskUserQuestion (max 12 chars)
+    header = abbreviate_for_header(current_branch)
+
     lines = [
         "PLAN SAVE PROMPT",
         "",
         "A plan exists for this session but has not been saved.",
         "",
         "Use AskUserQuestion to ask the user:",
-        f'  "{question_text}"',
+        f'  question: "{question_text}"',
+        f'  header: "{header}"',
         "",
         "IMPORTANT: Present options in this exact order:",
         '  1. "Save the plan" (Recommended) - Save plan as a GitHub issue and stop. '
