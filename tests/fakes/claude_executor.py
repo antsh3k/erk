@@ -4,8 +4,14 @@ This fake enables testing Claude command execution without
 requiring the actual Claude CLI or using subprocess mocks.
 """
 
+from __future__ import annotations
+
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from erk_shared.context.types import ClaudePermissionMode
 
 from erk.core.claude_executor import (
     ClaudeEvent,
@@ -115,7 +121,7 @@ class FakeClaudeExecutor(ClaudeExecutor):
         self._simulated_prompt_error = simulated_prompt_error
         self._simulated_no_work_events = simulated_no_work_events
         self._executed_commands: list[tuple[str, Path, bool, bool, str | None]] = []
-        self._interactive_calls: list[tuple[Path, bool, str, Path | None, str | None]] = []
+        self._interactive_calls: list[tuple[Path, bool, str, Path | None, str | None, str]] = []
         self._prompt_calls: list[tuple[str, str | None]] = []
 
     def is_claude_available(self) -> bool:
@@ -266,6 +272,7 @@ class FakeClaudeExecutor(ClaudeExecutor):
         command: str,
         target_subpath: Path | None,
         model: str | None = None,
+        permission_mode: ClaudePermissionMode = "acceptEdits",
     ) -> None:
         """Track interactive execution without replacing process.
 
@@ -279,7 +286,9 @@ class FakeClaudeExecutor(ClaudeExecutor):
         if not self._claude_available:
             raise RuntimeError("Claude CLI not found\nInstall from: https://claude.com/download")
 
-        self._interactive_calls.append((worktree_path, dangerous, command, target_subpath, model))
+        self._interactive_calls.append(
+            (worktree_path, dangerous, command, target_subpath, model, permission_mode)
+        )
 
     @property
     def executed_commands(self) -> list[tuple[str, Path, bool, bool, str | None]]:
@@ -292,10 +301,13 @@ class FakeClaudeExecutor(ClaudeExecutor):
         return self._executed_commands.copy()
 
     @property
-    def interactive_calls(self) -> list[tuple[Path, bool, str, Path | None, str | None]]:
+    def interactive_calls(
+        self,
+    ) -> list[tuple[Path, bool, str, Path | None, str | None, str]]:
         """Get the list of execute_interactive() calls that were made.
 
-        Returns list of (worktree_path, dangerous, command, target_subpath, model) tuples.
+        Returns list of tuples:
+        (worktree_path, dangerous, command, target_subpath, model, permission_mode)
 
         This property is for test assertions only.
         """
