@@ -12,7 +12,12 @@ from erk_shared.gateway.gt.abc import GtKit
 from erk_shared.gateway.gt.events import CompletionEvent, ProgressEvent
 from erk_shared.gateway.gt.types import FinalizeResult, PostAnalysisError
 from erk_shared.github.parsing import parse_git_remote_url
-from erk_shared.github.pr_footer import build_pr_body_footer
+from erk_shared.github.pr_footer import (
+    ClosingReference,
+    build_pr_body_footer,
+    extract_closing_reference,
+    extract_footer_from_body,
+)
 from erk_shared.github.types import GitHubRepoId, PRNotFound
 from erk_shared.impl_folder import has_issue_reference, read_issue_reference
 
@@ -38,6 +43,25 @@ def is_learn_plan(impl_dir: Path) -> bool:
         return False
 
     return "erk-learn" in issue_ref.labels
+
+
+def _extract_closing_ref_from_pr(
+    ops: GtKit,
+    cwd: Path,
+    pr_number: int,
+) -> ClosingReference | None:
+    """Extract closing reference from an existing PR's footer.
+
+    Used to preserve closing references when .impl/issue.json is missing.
+    """
+    repo_root = ops.git.get_repository_root(cwd)
+    current_pr = ops.github.get_pr(repo_root, pr_number)
+    if isinstance(current_pr, PRNotFound) or not current_pr.body:
+        return None
+    existing_footer = extract_footer_from_body(current_pr.body)
+    if existing_footer is None:
+        return None
+    return extract_closing_reference(existing_footer)
 
 
 def execute_finalize(
@@ -85,10 +109,23 @@ def execute_finalize(
     impl_dir = cwd / ".impl"
 
     issue_number: int | None = None
+    effective_plans_repo: str | None = plans_repo
+
     if has_issue_reference(impl_dir):
         issue_ref = read_issue_reference(impl_dir)
         if issue_ref is not None:
             issue_number = issue_ref.issue_number
+
+    # Fallback: If no issue_number from .impl/issue.json, try to preserve
+    # existing closing reference from the current PR body.
+    # This prevents losing closing references when .impl/issue.json is missing
+    # and finalize is run (which rebuilds the entire PR body).
+    closing_ref: ClosingReference | None = None
+    if issue_number is None:
+        closing_ref = _extract_closing_ref_from_pr(ops, cwd, pr_number)
+    if closing_ref is not None:
+        issue_number = closing_ref.issue_number
+        effective_plans_repo = closing_ref.plans_repo
 
     # Check if this is a learn plan
     is_learn_origin = is_learn_plan(impl_dir)
@@ -97,7 +134,7 @@ def execute_finalize(
     metadata_section = build_pr_body_footer(
         pr_number=pr_number,
         issue_number=issue_number,
-        plans_repo=plans_repo,
+        plans_repo=effective_plans_repo,
     )
     # pr_body is guaranteed non-None here (either passed in or read from file, validated above)
     assert pr_body is not None
