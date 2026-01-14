@@ -40,7 +40,6 @@ from erk.core.repo_discovery import (
 from erk.core.shell import Shell
 from erk_shared.context.types import GlobalConfig
 from erk_shared.gateway.console.real import InteractiveConsole
-from erk_shared.git.real import RealGit
 from erk_shared.github.issues.abc import GitHubIssues
 from erk_shared.github.issues.real import RealGitHubIssues
 from erk_shared.github.plan_issues import get_erk_label_definitions
@@ -82,13 +81,13 @@ def _build_repo_config_toml() -> str:
 
 
 def _build_local_config_toml() -> str:
-    """Build local.toml template content with explanatory comments.
+    """Build config.local.toml template content with explanatory comments.
 
     Returns:
         TOML content as a string
     """
     doc = tomlkit.document()
-    doc.add(tomlkit.comment(" .erk/local.toml"))
+    doc.add(tomlkit.comment(" .erk/config.local.toml"))
     doc.add(tomlkit.comment(" Per-user local configuration (gitignored)"))
     doc.add(tomlkit.comment(""))
     doc.add(tomlkit.comment(" This file is for your personal settings that shouldn't be shared"))
@@ -222,11 +221,11 @@ def _run_gitignore_prompts(repo_root: Path) -> None:
         "Add .impl/ to .gitignore (temporary implementation plans)?",
     )
 
-    # Add .erk/local.toml
+    # Add .erk/config.local.toml
     gitignore_content, local_added = _add_gitignore_entry_with_prompt(
         gitignore_content,
-        ".erk/local.toml",
-        "Add .erk/local.toml to .gitignore (per-user local config)?",
+        ".erk/config.local.toml",
+        "Add .erk/config.local.toml to .gitignore (per-user local config)?",
     )
 
     # Write if any entry was modified
@@ -550,7 +549,7 @@ def run_init(
     # Check if we're in a git repo (before any other setup)
     # Use a temporary erk_root for discovery - will be replaced after global config setup
     temp_erk_root = Path.home() / ".erk"
-    repo_or_sentinel = discover_repo_or_sentinel(ctx.cwd, temp_erk_root, RealGit())
+    repo_or_sentinel = discover_repo_or_sentinel(ctx.cwd, temp_erk_root, ctx.git)
 
     if isinstance(repo_or_sentinel, NoRepoSentinel):
         user_output(click.style("Error: ", fg="red") + "Not in a git repository.")
@@ -617,8 +616,8 @@ def run_init(
         cfg_path.write_text(_build_repo_config_toml(), encoding="utf-8")
         user_output(f"  Wrote {cfg_path}")
 
-        # Create local.toml template (gitignored, per-user config)
-        local_cfg_path = erk_dir / "local.toml"
+        # Create config.local.toml template (gitignored, per-user config)
+        local_cfg_path = erk_dir / "config.local.toml"
         if not local_cfg_path.exists():
             local_cfg_path.write_text(_build_local_config_toml(), encoding="utf-8")
             user_output(f"  Wrote {local_cfg_path}")
