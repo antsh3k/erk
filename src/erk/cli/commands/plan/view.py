@@ -9,6 +9,23 @@ from erk.cli.github_parsing import parse_issue_identifier
 from erk.core.context import ErkContext
 from erk.core.repo_discovery import ensure_erk_metadata_dir
 from erk_shared.github.metadata.core import find_metadata_block
+from erk_shared.github.metadata.schemas import (
+    CREATED_BY,
+    CREATED_FROM_SESSION,
+    LAST_DISPATCHED_AT,
+    LAST_DISPATCHED_RUN_ID,
+    LAST_LEARN_AT,
+    LAST_LEARN_SESSION,
+    LAST_LOCAL_IMPL_AT,
+    LAST_LOCAL_IMPL_EVENT,
+    LAST_LOCAL_IMPL_SESSION,
+    LAST_LOCAL_IMPL_USER,
+    LAST_REMOTE_IMPL_AT,
+    OBJECTIVE_ISSUE,
+    SCHEMA_VERSION,
+    SOURCE_REPO,
+    WORKTREE_NAME,
+)
 from erk_shared.output.output import user_output
 
 
@@ -63,66 +80,66 @@ def _format_header_section(header_info: dict[str, object]) -> list[str]:
     lines.append(click.style("--- Header Info ---", bold=True))
 
     # Basic metadata
-    if "created_by" in header_info:
-        lines.append(f"Created by: {header_info['created_by']}")
+    if CREATED_BY in header_info:
+        lines.append(f"Created by: {header_info[CREATED_BY]}")
 
-    if "schema_version" in header_info:
-        lines.append(f"Schema version: {header_info['schema_version']}")
+    if SCHEMA_VERSION in header_info:
+        lines.append(f"Schema version: {header_info[SCHEMA_VERSION]}")
 
-    if "worktree_name" in header_info:
-        lines.append(f"Worktree: {header_info['worktree_name']}")
+    if WORKTREE_NAME in header_info:
+        lines.append(f"Worktree: {header_info[WORKTREE_NAME]}")
 
-    if "objective_issue" in header_info:
-        lines.append(f"Objective: #{header_info['objective_issue']}")
+    if OBJECTIVE_ISSUE in header_info:
+        lines.append(f"Objective: #{header_info[OBJECTIVE_ISSUE]}")
 
-    if "source_repo" in header_info:
-        lines.append(f"Source repo: {header_info['source_repo']}")
+    if SOURCE_REPO in header_info:
+        lines.append(f"Source repo: {header_info[SOURCE_REPO]}")
 
     # Local implementation info
     has_local_impl = any(
         k in header_info
-        for k in ["last_local_impl_at", "last_local_impl_event", "last_local_impl_session"]
+        for k in [LAST_LOCAL_IMPL_AT, LAST_LOCAL_IMPL_EVENT, LAST_LOCAL_IMPL_SESSION]
     )
     if has_local_impl:
         lines.append("")
         lines.append(click.style("--- Local Implementation ---", bold=True))
-        if "last_local_impl_at" in header_info:
-            event = header_info.get("last_local_impl_event", "")
+        if LAST_LOCAL_IMPL_AT in header_info:
+            event = header_info.get(LAST_LOCAL_IMPL_EVENT, "")
             event_str = f" ({event})" if event else ""
-            timestamp = _format_value(header_info["last_local_impl_at"])
+            timestamp = _format_value(header_info[LAST_LOCAL_IMPL_AT])
             lines.append(f"Last impl: {timestamp}{event_str}")
-        if "last_local_impl_session" in header_info:
-            lines.append(f"Session: {header_info['last_local_impl_session']}")
-        if "last_local_impl_user" in header_info:
-            lines.append(f"User: {header_info['last_local_impl_user']}")
+        if LAST_LOCAL_IMPL_SESSION in header_info:
+            lines.append(f"Session: {header_info[LAST_LOCAL_IMPL_SESSION]}")
+        if LAST_LOCAL_IMPL_USER in header_info:
+            lines.append(f"User: {header_info[LAST_LOCAL_IMPL_USER]}")
 
     # Remote implementation info
-    if "last_remote_impl_at" in header_info:
+    if LAST_REMOTE_IMPL_AT in header_info:
         lines.append("")
         lines.append(click.style("--- Remote Implementation ---", bold=True))
-        lines.append(f"Last impl: {_format_value(header_info['last_remote_impl_at'])}")
+        lines.append(f"Last impl: {_format_value(header_info[LAST_REMOTE_IMPL_AT])}")
 
     # Remote dispatch info (GitHub Actions workflow triggers)
-    has_dispatch = "last_dispatched_at" in header_info or "last_dispatched_run_id" in header_info
+    has_dispatch = LAST_DISPATCHED_AT in header_info or LAST_DISPATCHED_RUN_ID in header_info
     if has_dispatch:
         lines.append("")
         lines.append(click.style("--- Remote Dispatch ---", bold=True))
-        if "last_dispatched_at" in header_info:
-            lines.append(f"Last dispatched: {_format_value(header_info['last_dispatched_at'])}")
-        if "last_dispatched_run_id" in header_info:
-            lines.append(f"Run ID: {header_info['last_dispatched_run_id']}")
+        if LAST_DISPATCHED_AT in header_info:
+            lines.append(f"Last dispatched: {_format_value(header_info[LAST_DISPATCHED_AT])}")
+        if LAST_DISPATCHED_RUN_ID in header_info:
+            lines.append(f"Run ID: {header_info[LAST_DISPATCHED_RUN_ID]}")
 
     # Learn info - always show this section
     lines.append("")
     lines.append(click.style("--- Learn ---", bold=True))
-    if "created_from_session" in header_info:
-        lines.append(f"Plan created from session: {header_info['created_from_session']}")
-    has_learn_evaluation = "last_learn_at" in header_info or "last_learn_session" in header_info
+    if CREATED_FROM_SESSION in header_info:
+        lines.append(f"Plan created from session: {header_info[CREATED_FROM_SESSION]}")
+    has_learn_evaluation = LAST_LEARN_AT in header_info or LAST_LEARN_SESSION in header_info
     if has_learn_evaluation:
-        if "last_learn_at" in header_info:
-            lines.append(f"Last learn: {_format_value(header_info['last_learn_at'])}")
-        if "last_learn_session" in header_info:
-            lines.append(f"Learn session: {header_info['last_learn_session']}")
+        if LAST_LEARN_AT in header_info:
+            lines.append(f"Last learn: {_format_value(header_info[LAST_LEARN_AT])}")
+        if LAST_LEARN_SESSION in header_info:
+            lines.append(f"Learn session: {header_info[LAST_LEARN_SESSION]}")
     else:
         lines.append("No learn evaluation")
 

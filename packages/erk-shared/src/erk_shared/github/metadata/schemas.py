@@ -1,7 +1,7 @@
 """Schema implementations for metadata blocks."""
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from erk_shared.github.metadata.types import MetadataBlockSchema
 
@@ -307,6 +307,54 @@ class PlanRetrySchema(MetadataBlockSchema):
         return "plan-retry"
 
 
+# Plan-header field name constants with Literal types
+# Use these constants instead of hardcoded strings when accessing plan-header data dictionaries.
+
+PlanHeaderFieldName = Literal[
+    "schema_version",
+    "created_at",
+    "created_by",
+    "worktree_name",
+    "plan_comment_id",
+    "last_dispatched_run_id",
+    "last_dispatched_node_id",
+    "last_dispatched_at",
+    "last_local_impl_at",
+    "last_local_impl_event",
+    "last_local_impl_session",
+    "last_local_impl_user",
+    "last_remote_impl_at",
+    "source_repo",
+    "objective_issue",
+    "created_from_session",
+    "last_learn_session",
+    "last_learn_at",
+]
+"""Union type of all valid plan-header field names."""
+
+# Required fields
+SCHEMA_VERSION: Literal["schema_version"] = "schema_version"
+CREATED_AT: Literal["created_at"] = "created_at"
+CREATED_BY: Literal["created_by"] = "created_by"
+
+# Optional fields
+WORKTREE_NAME: Literal["worktree_name"] = "worktree_name"
+PLAN_COMMENT_ID: Literal["plan_comment_id"] = "plan_comment_id"
+LAST_DISPATCHED_RUN_ID: Literal["last_dispatched_run_id"] = "last_dispatched_run_id"
+LAST_DISPATCHED_NODE_ID: Literal["last_dispatched_node_id"] = "last_dispatched_node_id"
+LAST_DISPATCHED_AT: Literal["last_dispatched_at"] = "last_dispatched_at"
+LAST_LOCAL_IMPL_AT: Literal["last_local_impl_at"] = "last_local_impl_at"
+LAST_LOCAL_IMPL_EVENT: Literal["last_local_impl_event"] = "last_local_impl_event"
+LAST_LOCAL_IMPL_SESSION: Literal["last_local_impl_session"] = "last_local_impl_session"
+LAST_LOCAL_IMPL_USER: Literal["last_local_impl_user"] = "last_local_impl_user"
+LAST_REMOTE_IMPL_AT: Literal["last_remote_impl_at"] = "last_remote_impl_at"
+SOURCE_REPO: Literal["source_repo"] = "source_repo"
+OBJECTIVE_ISSUE: Literal["objective_issue"] = "objective_issue"
+CREATED_FROM_SESSION: Literal["created_from_session"] = "created_from_session"
+LAST_LEARN_SESSION: Literal["last_learn_session"] = "last_learn_session"
+LAST_LEARN_AT: Literal["last_learn_at"] = "last_learn_at"
+
+
 @dataclass(frozen=True)
 class PlanHeaderSchema(MetadataBlockSchema):
     """Schema for plan-header blocks.
@@ -334,26 +382,26 @@ class PlanHeaderSchema(MetadataBlockSchema):
     def validate(self, data: dict[str, Any]) -> None:
         """Validate plan-header data structure."""
         required_fields = {
-            "schema_version",
-            "created_at",
-            "created_by",
+            SCHEMA_VERSION,
+            CREATED_AT,
+            CREATED_BY,
         }
         optional_fields = {
-            "worktree_name",
-            "plan_comment_id",
-            "last_dispatched_run_id",
-            "last_dispatched_node_id",
-            "last_dispatched_at",
-            "last_local_impl_at",
-            "last_local_impl_event",
-            "last_local_impl_session",
-            "last_local_impl_user",
-            "last_remote_impl_at",
-            "source_repo",
-            "objective_issue",
-            "created_from_session",
-            "last_learn_session",
-            "last_learn_at",
+            WORKTREE_NAME,
+            PLAN_COMMENT_ID,
+            LAST_DISPATCHED_RUN_ID,
+            LAST_DISPATCHED_NODE_ID,
+            LAST_DISPATCHED_AT,
+            LAST_LOCAL_IMPL_AT,
+            LAST_LOCAL_IMPL_EVENT,
+            LAST_LOCAL_IMPL_SESSION,
+            LAST_LOCAL_IMPL_USER,
+            LAST_REMOTE_IMPL_AT,
+            SOURCE_REPO,
+            OBJECTIVE_ISSUE,
+            CREATED_FROM_SESSION,
+            LAST_LEARN_SESSION,
+            LAST_LEARN_AT,
         }
 
         # Check required fields exist
@@ -362,116 +410,116 @@ class PlanHeaderSchema(MetadataBlockSchema):
             raise ValueError(f"Missing required fields: {', '.join(sorted(missing))}")
 
         # Validate schema_version
-        if data["schema_version"] != "2":
-            raise ValueError(f"Invalid schema_version '{data['schema_version']}'. Must be '2'")
+        if data[SCHEMA_VERSION] != "2":
+            raise ValueError(f"Invalid schema_version '{data[SCHEMA_VERSION]}'. Must be '2'")
 
         # Validate required string fields
-        for field in ["created_at", "created_by"]:
+        for field in [CREATED_AT, CREATED_BY]:
             if not isinstance(data[field], str):
                 raise ValueError(f"{field} must be a string")
             if len(data[field]) == 0:
                 raise ValueError(f"{field} must not be empty")
 
         # Validate optional worktree_name field
-        if "worktree_name" in data and data["worktree_name"] is not None:
-            if not isinstance(data["worktree_name"], str):
+        if WORKTREE_NAME in data and data[WORKTREE_NAME] is not None:
+            if not isinstance(data[WORKTREE_NAME], str):
                 raise ValueError("worktree_name must be a string or null")
-            if len(data["worktree_name"]) == 0:
+            if len(data[WORKTREE_NAME]) == 0:
                 raise ValueError("worktree_name must not be empty when provided")
 
         # Validate optional plan_comment_id field
-        if "plan_comment_id" in data and data["plan_comment_id"] is not None:
-            if not isinstance(data["plan_comment_id"], int):
+        if PLAN_COMMENT_ID in data and data[PLAN_COMMENT_ID] is not None:
+            if not isinstance(data[PLAN_COMMENT_ID], int):
                 raise ValueError("plan_comment_id must be an integer or null")
-            if data["plan_comment_id"] <= 0:
+            if data[PLAN_COMMENT_ID] <= 0:
                 raise ValueError("plan_comment_id must be positive when provided")
 
         # Validate optional fields if present
-        if "last_dispatched_run_id" in data:
-            if data["last_dispatched_run_id"] is not None:
-                if not isinstance(data["last_dispatched_run_id"], str):
+        if LAST_DISPATCHED_RUN_ID in data:
+            if data[LAST_DISPATCHED_RUN_ID] is not None:
+                if not isinstance(data[LAST_DISPATCHED_RUN_ID], str):
                     raise ValueError("last_dispatched_run_id must be a string or null")
 
-        if "last_dispatched_node_id" in data:
-            if data["last_dispatched_node_id"] is not None:
-                if not isinstance(data["last_dispatched_node_id"], str):
+        if LAST_DISPATCHED_NODE_ID in data:
+            if data[LAST_DISPATCHED_NODE_ID] is not None:
+                if not isinstance(data[LAST_DISPATCHED_NODE_ID], str):
                     raise ValueError("last_dispatched_node_id must be a string or null")
 
-        if "last_dispatched_at" in data:
-            if data["last_dispatched_at"] is not None:
-                if not isinstance(data["last_dispatched_at"], str):
+        if LAST_DISPATCHED_AT in data:
+            if data[LAST_DISPATCHED_AT] is not None:
+                if not isinstance(data[LAST_DISPATCHED_AT], str):
                     raise ValueError("last_dispatched_at must be a string or null")
 
-        if "last_local_impl_at" in data:
-            if data["last_local_impl_at"] is not None:
-                if not isinstance(data["last_local_impl_at"], str):
+        if LAST_LOCAL_IMPL_AT in data:
+            if data[LAST_LOCAL_IMPL_AT] is not None:
+                if not isinstance(data[LAST_LOCAL_IMPL_AT], str):
                     raise ValueError("last_local_impl_at must be a string or null")
 
-        if "last_remote_impl_at" in data:
-            if data["last_remote_impl_at"] is not None:
-                if not isinstance(data["last_remote_impl_at"], str):
+        if LAST_REMOTE_IMPL_AT in data:
+            if data[LAST_REMOTE_IMPL_AT] is not None:
+                if not isinstance(data[LAST_REMOTE_IMPL_AT], str):
                     raise ValueError("last_remote_impl_at must be a string or null")
 
         # Validate last_local_impl_event
-        if "last_local_impl_event" in data:
-            if data["last_local_impl_event"] is not None:
-                if not isinstance(data["last_local_impl_event"], str):
+        if LAST_LOCAL_IMPL_EVENT in data:
+            if data[LAST_LOCAL_IMPL_EVENT] is not None:
+                if not isinstance(data[LAST_LOCAL_IMPL_EVENT], str):
                     raise ValueError("last_local_impl_event must be a string or null")
                 valid_events = {"started", "ended"}
-                if data["last_local_impl_event"] not in valid_events:
-                    event_value = data["last_local_impl_event"]
+                if data[LAST_LOCAL_IMPL_EVENT] not in valid_events:
+                    event_value = data[LAST_LOCAL_IMPL_EVENT]
                     raise ValueError(
                         f"last_local_impl_event must be 'started' or 'ended', got '{event_value}'"
                     )
 
         # Validate last_local_impl_session
-        if "last_local_impl_session" in data:
-            if data["last_local_impl_session"] is not None:
-                if not isinstance(data["last_local_impl_session"], str):
+        if LAST_LOCAL_IMPL_SESSION in data:
+            if data[LAST_LOCAL_IMPL_SESSION] is not None:
+                if not isinstance(data[LAST_LOCAL_IMPL_SESSION], str):
                     raise ValueError("last_local_impl_session must be a string or null")
 
         # Validate last_local_impl_user
-        if "last_local_impl_user" in data:
-            if data["last_local_impl_user"] is not None:
-                if not isinstance(data["last_local_impl_user"], str):
+        if LAST_LOCAL_IMPL_USER in data:
+            if data[LAST_LOCAL_IMPL_USER] is not None:
+                if not isinstance(data[LAST_LOCAL_IMPL_USER], str):
                     raise ValueError("last_local_impl_user must be a string or null")
 
         # Validate source_repo field - must be "owner/repo" format if present
-        if "source_repo" in data and data["source_repo"] is not None:
-            if not isinstance(data["source_repo"], str):
+        if SOURCE_REPO in data and data[SOURCE_REPO] is not None:
+            if not isinstance(data[SOURCE_REPO], str):
                 raise ValueError("source_repo must be a string or null")
-            if len(data["source_repo"]) == 0:
+            if len(data[SOURCE_REPO]) == 0:
                 raise ValueError("source_repo must not be empty when provided")
             # Validate owner/repo format
-            if "/" not in data["source_repo"]:
+            if "/" not in data[SOURCE_REPO]:
                 raise ValueError("source_repo must be in 'owner/repo' format")
 
         # Validate optional objective_issue field
-        if "objective_issue" in data and data["objective_issue"] is not None:
-            if not isinstance(data["objective_issue"], int):
+        if OBJECTIVE_ISSUE in data and data[OBJECTIVE_ISSUE] is not None:
+            if not isinstance(data[OBJECTIVE_ISSUE], int):
                 raise ValueError("objective_issue must be an integer or null")
-            if data["objective_issue"] <= 0:
+            if data[OBJECTIVE_ISSUE] <= 0:
                 raise ValueError("objective_issue must be positive when provided")
 
         # Validate optional created_from_session field
-        if "created_from_session" in data and data["created_from_session"] is not None:
-            if not isinstance(data["created_from_session"], str):
+        if CREATED_FROM_SESSION in data and data[CREATED_FROM_SESSION] is not None:
+            if not isinstance(data[CREATED_FROM_SESSION], str):
                 raise ValueError("created_from_session must be a string or null")
-            if len(data["created_from_session"]) == 0:
+            if len(data[CREATED_FROM_SESSION]) == 0:
                 raise ValueError("created_from_session must not be empty when provided")
 
         # Validate optional last_learn_session field
-        if "last_learn_session" in data and data["last_learn_session"] is not None:
-            if not isinstance(data["last_learn_session"], str):
+        if LAST_LEARN_SESSION in data and data[LAST_LEARN_SESSION] is not None:
+            if not isinstance(data[LAST_LEARN_SESSION], str):
                 raise ValueError("last_learn_session must be a string or null")
-            if len(data["last_learn_session"]) == 0:
+            if len(data[LAST_LEARN_SESSION]) == 0:
                 raise ValueError("last_learn_session must not be empty when provided")
 
         # Validate optional last_learn_at field
-        if "last_learn_at" in data and data["last_learn_at"] is not None:
-            if not isinstance(data["last_learn_at"], str):
+        if LAST_LEARN_AT in data and data[LAST_LEARN_AT] is not None:
+            if not isinstance(data[LAST_LEARN_AT], str):
                 raise ValueError("last_learn_at must be a string or null")
-            if len(data["last_learn_at"]) == 0:
+            if len(data[LAST_LEARN_AT]) == 0:
                 raise ValueError("last_learn_at must not be empty when provided")
 
         # Check for unexpected fields
