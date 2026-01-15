@@ -46,7 +46,6 @@ from erk.core.worktree_pool import (
     save_pool_state,
     update_slot_objective,
 )
-from erk_shared.gateway.graphite.disabled import GraphiteDisabled
 from erk_shared.gateway.gt.cli import render_events
 from erk_shared.gateway.gt.operations.land_pr import execute_land_pr
 from erk_shared.gateway.gt.types import LandPrError, LandPrSuccess
@@ -733,7 +732,7 @@ def _land_current_branch(
     target_child_branch: str | None = None
     if up_flag:
         # --up requires Graphite for child branch tracking
-        if isinstance(ctx.graphite, GraphiteDisabled):
+        if not ctx.branch_manager.is_graphite_managed():
             user_output(
                 click.style("Error: ", fg="red")
                 + "--up flag requires Graphite for child branch tracking.\n\n"
@@ -776,7 +775,7 @@ def _land_current_branch(
         )
 
     # Step 1: Execute land (merges the PR)
-    if isinstance(ctx.graphite, GraphiteDisabled):
+    if not ctx.branch_manager.is_graphite_managed():
         # Simple GitHub-only merge path (no stack validation)
         if isinstance(pr_details, PRNotFound):
             user_output(
